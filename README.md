@@ -1,6 +1,6 @@
 # NotifyMeBot
 
-Telegram reminder bot powered by Google Gemini + SQLite.
+Telegram reminder bot with a pluggable LLM and SQLite.
 
 ## What it does
 
@@ -9,7 +9,7 @@ Telegram reminder bot powered by Google Gemini + SQLite.
 - User can schedule recurring reminders (for example: every Monday,
   every 2 days, every week, every Wednesday and Saturday)
 - User can also delete reminders in natural language
-- Bot asks Gemini LLM to extract:
+- Bot asks the configured LLM to extract:
   - reminder content
   - UTC due datetime
 - Bot stores reminder in SQLite
@@ -17,7 +17,7 @@ Telegram reminder bot powered by Google Gemini + SQLite.
 - At due time, bot sends:
   - language-aware `notification_text` produced by LLM
 - Bot deletes the reminder after sending
-- If Gemini is unavailable, bot returns a clear retry message
+- If the LLM is unavailable, bot returns a clear retry message
 - System messages are localized (English, Russian, Italian, French,
   German, Ukrainian, Spanish)
 
@@ -80,8 +80,9 @@ cp config/settings.docker.example.yaml config/settings.yaml
 
 Edit `config/settings.yaml` and set:
 - `telegram_bot_token`
-- `gemini_api_key`
-- optionally `default_timezone` and `gemini_model`
+- `api_key` (LLM API key)
+- `model_name` (provider-specific model id)
+- optionally `default_timezone`, `llm_provider`, and `llm_base_url`
 
 2. Build image:
 

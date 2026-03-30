@@ -25,11 +25,13 @@ from notifyme_bot.models import Reminder
 def _settings(db_path: Path) -> Settings:
     return Settings(
         telegram_bot_token="123456:ABCDEF",
-        gemini_api_key="k",
-        gemini_model="gemini-2.5-flash",
+        api_key="k",
+        model_name="gemini-2.5-flash",
         database_path=str(db_path),
         default_timezone="UTC",
         allow_new_users=True,
+        llm_provider="gemini",
+        llm_base_url=None,
     )
 
 

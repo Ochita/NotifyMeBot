@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "notifyme-bot"
 version = "0.1.0"
-description = "Telegram reminder bot backed by SQLite and Google Gemini."
+description = "Telegram reminder bot with SQLite and pluggable LLM backends."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -39,6 +39,9 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/notifyme_bot/llm_parser.py" = ["E501"]
 
 [tool.pytest.ini_options]
 addopts = [

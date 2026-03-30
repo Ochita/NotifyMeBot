@@ -205,11 +205,13 @@ class _Update:
 def _settings(allow_new_users: bool = True) -> Settings:
     return Settings(
         telegram_bot_token="x",
-        gemini_api_key="y",
-        gemini_model="gemini-2.5-flash",
+        api_key="y",
+        model_name="gemini-2.5-flash",
         database_path="d.sqlite3",
         default_timezone="UTC",
         allow_new_users=allow_new_users,
+        llm_provider="gemini",
+        llm_base_url=None,
     )
 
 

@@ -1,8 +1,14 @@
 telegram_bot_token: "your-telegram-bot-token"
-gemini_api_key: "your-gemini-api-key"
+api_key: "your-llm-api-key"
 
-# Replace with the Gemini model id you want to use.
-gemini_model: "gemini-3.1-flash-lite-preview"
+# Model id for the configured llm_provider (e.g. Gemini or OpenAI model name).
+model_name: "gemini-3.1-flash-lite-preview"
+
+# LLM backend: gemini (default) or openai_compatible (OpenAI API, OpenRouter, local servers).
+# llm_provider: gemini
+# For openai_compatible, set model_name to the remote model id and optionally override the API base.
+# llm_provider: openai_compatible
+# llm_base_url: "https://openrouter.ai/api/v1"
 
 # App behavior
 default_timezone: "UTC"

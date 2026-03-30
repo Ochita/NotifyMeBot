@@ -9,6 +9,10 @@ import httpx
 import pytest
 from gemini_payloads import gemini_choices_response
 
+from notifyme_bot.llm.gemini import (
+    GeminiStructuredChatProvider,
+    extract_gemini_text,
+)
 from notifyme_bot.llm_parser import (
     GeminiServiceError,
     LLMReminderParser,
@@ -29,8 +33,10 @@ class _FakeResponse:
 
 def _parser() -> LLMReminderParser:
     return LLMReminderParser(
-        api_key="test-key",
-        model="test/model",
+        provider=GeminiStructuredChatProvider(
+            api_key="test-key",
+            model="test/model",
+        ),
         default_timezone="UTC",
     )
 
@@ -340,7 +346,7 @@ def test_parser_helpers() -> None:
     assert LLMReminderParser._normalize_action("nope") == "none"
 
 
-def test_extract_content_from_parts() -> None:
+def test_extract_gemini_text_from_parts() -> None:
     body = {
         "choices": [
             {
@@ -353,7 +359,7 @@ def test_extract_content_from_parts() -> None:
             }
         ]
     }
-    assert LLMReminderParser._extract_content(body) == '{"ok":true}'
+    assert extract_gemini_text(body) == '{"ok":true}'
 
 
 @pytest.mark.asyncio

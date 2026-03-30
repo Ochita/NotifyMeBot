@@ -16,6 +16,7 @@ from telegram.ext import (
 from notifyme_bot.config import Settings
 from notifyme_bot.db import ReminderRepository
 from notifyme_bot.i18n import detect_locale, translate
+from notifyme_bot.llm.factory import llm_provider_from_settings
 from notifyme_bot.llm_parser import (
     GeminiServiceError,
     LLMReminderParser,
@@ -33,7 +34,7 @@ async def _is_access_denied(
     settings: Settings,
     locale: str,
 ) -> bool:
-    """When registration is closed, only Telegram users in ``users`` may proceed."""
+    """When registration is closed, only Telegram users in ``users`` may proceed."""  # noqa: E501
     if settings.allow_new_users:
         return False
     if update.effective_user is None or update.effective_chat is None:
@@ -58,8 +59,7 @@ def build_application(settings: Settings) -> Application:
 
     repository = ReminderRepository(settings.database_path)
     parser = LLMReminderParser(
-        api_key=settings.gemini_api_key,
-        model=settings.gemini_model,
+        provider=llm_provider_from_settings(settings),
         default_timezone=settings.default_timezone,
     )
     application.bot_data["settings"] = settings
