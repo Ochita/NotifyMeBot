@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
+from http_fakes import JsonHttpResponse
 
 from notifyme_bot.llm.gemini import (
     GeminiStructuredChatProvider,
@@ -45,7 +46,7 @@ async def test_parse_reminder_returns_none_when_missing_texts(
     }
 
     async def fake_post(self, url: str, json: dict, headers: dict):
-        return _Resp(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     parser = LLMReminderParser(
@@ -54,17 +55,6 @@ async def test_parse_reminder_returns_none_when_missing_texts(
     )
     out = await parser.parse_reminder("x", datetime.now(UTC))
     assert out is None
-
-
-class _Resp:
-    def __init__(self, body: dict) -> None:
-        self._body = body
-
-    def raise_for_status(self) -> None:
-        return None
-
-    def json(self) -> dict:
-        return self._body
 
 
 @pytest.mark.asyncio
@@ -94,7 +84,7 @@ async def test_parse_reminder_returns_none_when_no_schedulable_time(
     }
 
     async def fake_post(self, url: str, json: dict, headers: dict):
-        return _Resp(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     parser = LLMReminderParser(
@@ -183,7 +173,7 @@ async def test_chat_completion_bad_body_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_post(self, url: str, json: dict, headers: dict):
-        return _Resp({})
+        return JsonHttpResponse({})
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     parser = LLMReminderParser(
@@ -229,7 +219,7 @@ async def test_parse_delete_request_delete_all_from_llm_flag(
     }
 
     async def fake_post(self, url: str, json: dict, headers: dict):
-        return _Resp(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     parser = LLMReminderParser(
@@ -264,7 +254,7 @@ async def test_parse_delete_request_delete_all_not_inferred_from_message(
     }
 
     async def fake_post(self, url: str, json: dict, headers: dict):
-        return _Resp(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     parser = LLMReminderParser(

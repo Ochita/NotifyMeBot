@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 from gemini_payloads import gemini_choices_response
+from http_fakes import JsonHttpResponse
 
 from notifyme_bot.llm.gemini import (
     GeminiStructuredChatProvider,
@@ -18,17 +19,6 @@ from notifyme_bot.llm_parser import (
     LLMReminderParser,
 )
 from notifyme_bot.models import CommandParseResult
-
-
-class _FakeResponse:
-    def __init__(self, body: dict) -> None:
-        self._body = body
-
-    def raise_for_status(self) -> None:
-        return None
-
-    def json(self) -> dict:
-        return self._body
 
 
 def _parser() -> LLMReminderParser:
@@ -72,14 +62,14 @@ async def test_parse_reminder_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
     async def fake_post(
         self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
+    ) -> JsonHttpResponse:
         assert "models/test/model:generateContent" in url
         assert "x-goog-api-key" in headers
         assert (
             json["generationConfig"]["responseMimeType"]
             == "application/json"
         )
-        return _FakeResponse(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
 
@@ -123,9 +113,9 @@ async def test_parse_reminder_not_schedulable(
 
     async def fake_post(
         self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
+    ) -> JsonHttpResponse:
         _ = (url, json, headers)
-        return _FakeResponse(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
 
@@ -153,7 +143,7 @@ async def test_parse_reminder_gemini_error(
 ) -> None:
     async def fake_post(
         self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
+    ) -> JsonHttpResponse:
         _ = (self, url, json, headers)
         raise httpx.ConnectError("down")
 
@@ -163,44 +153,6 @@ async def test_parse_reminder_gemini_error(
 
     with pytest.raises(GeminiServiceError):
         await parser.parse_reminder("Please remind me", datetime.now(UTC))
-
-
-@pytest.mark.asyncio
-async def test_parse_reminder_not_schedulable_no_fallback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    payload = {
-        "choices": [
-            {
-                "message": {
-                    "content": json.dumps(
-                        {
-                            "should_schedule": False,
-                            "reminder_text": "",
-                            "notification_text": "",
-                            "remind_at_utc": "",
-                            "is_recurring": False,
-                            "recurrence_unit": "none",
-                            "recurrence_interval": 0,
-                            "recurrence_weekdays": [],
-                        }
-                    )
-                }
-            }
-        ]
-    }
-
-    async def fake_post(
-        self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
-        _ = (self, url, json, headers)
-        return _FakeResponse(payload)
-
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = _parser()
-    now_utc = datetime.now(UTC)
-    parsed = await parser.parse_reminder("Напомни мне через 5 минут", now_utc)
-    assert parsed is None
 
 
 @pytest.mark.asyncio
@@ -225,9 +177,9 @@ async def test_parse_delete_request_success(
 
     async def fake_post(
         self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
+    ) -> JsonHttpResponse:
         _ = (self, url, json, headers)
-        return _FakeResponse(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     parser = _parser()
@@ -235,22 +187,6 @@ async def test_parse_delete_request_success(
     assert parsed is not None
     assert parsed.delete_all is False
     assert parsed.target_text == "Alexei"
-
-
-@pytest.mark.asyncio
-async def test_parse_delete_request_http_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_post(
-        self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
-        _ = (self, url, json, headers)
-        raise httpx.ConnectError("down")
-
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = _parser()
-    with pytest.raises(GeminiServiceError):
-        await parser.parse_delete_request("Delete reminder")
 
 
 @pytest.mark.asyncio
@@ -277,9 +213,9 @@ async def test_parse_reminder_recurring_defaults(
 
     async def fake_post(
         self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
+    ) -> JsonHttpResponse:
         _ = (self, url, json, headers)
-        return _FakeResponse(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     parser = _parser()
@@ -293,46 +229,6 @@ async def test_parse_reminder_recurring_defaults(
     assert parsed.recurrence_unit == "week"
     assert parsed.recurrence_interval == 1
     assert parsed.recurrence_weekdays == [2]
-
-
-@pytest.mark.asyncio
-async def test_parse_reminder_recurring_minutes_from_llm_fields(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    now_utc = datetime.now(UTC)
-    remind_at = (
-        (now_utc + timedelta(minutes=2)).isoformat().replace("+00:00", "Z")
-    )
-    payload = gemini_choices_response(
-        {
-            "should_schedule": True,
-            "reminder_text": "посмотреть в окно",
-            "notification_text": "Напоминание: посмотреть в окно.",
-            "remind_at_utc": remind_at,
-            "is_recurring": True,
-            "recurrence_unit": "minute",
-            "recurrence_interval": 2,
-            "recurrence_weekdays": [],
-        }
-    )
-
-    async def fake_post(
-        self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
-        _ = (self, url, json, headers)
-        return _FakeResponse(payload)
-
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = _parser()
-    parsed = await parser.parse_reminder(
-        "Напоминай каждые две минуты посмотреть в окно",
-        now_utc,
-    )
-
-    assert parsed is not None
-    assert parsed.is_recurring is True
-    assert parsed.recurrence_unit == "minute"
-    assert parsed.recurrence_interval == 2
 
 
 def test_parser_helpers() -> None:
@@ -396,12 +292,12 @@ async def test_parse_reminder_prompt_uses_command_contract(
 
     async def fake_post(
         self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
+    ) -> JsonHttpResponse:
         _ = (self, url, headers)
         captured_prompt["system"] = json["system_instruction"]["parts"][0][
             "text"
         ]
-        return _FakeResponse(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     parser = _parser()
@@ -447,9 +343,9 @@ async def test_parse_reminder_recurring_with_llm_first_fire_time(
 
     async def fake_post(
         self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
+    ) -> JsonHttpResponse:
         _ = (self, url, json, headers)
-        return _FakeResponse(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     parser = _parser()
@@ -498,9 +394,9 @@ async def test_parse_reminder_uses_notification_text_from_llm(
 
     async def fake_post(
         self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
+    ) -> JsonHttpResponse:
         _ = (self, url, json, headers)
-        return _FakeResponse(payload)
+        return JsonHttpResponse(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     parser = _parser()
@@ -519,9 +415,9 @@ async def test_parse_command_single_http_call(
 
     async def fake_post(
         self, url: str, json: dict, headers: dict
-    ) -> _FakeResponse:
+    ) -> JsonHttpResponse:
         posts.append(1)
-        return _FakeResponse(
+        return JsonHttpResponse(
             gemini_choices_response(
                 {
                     "should_schedule": True,

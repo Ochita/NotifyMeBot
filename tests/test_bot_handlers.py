@@ -125,6 +125,8 @@ class _FakeRepo:
 
 
 class _FakeParser:
+    """Stub ``LLMReminderParser`` used by ``on_text_message`` tests."""
+
     def __init__(
         self,
         result: ParsedReminder | None,
@@ -137,6 +139,12 @@ class _FakeParser:
         self.last_timezone: str | None = None
         self.delete_result = None
 
+    def _maybe_raise(self) -> None:
+        if self._service_error:
+            raise GeminiServiceError("LLM request failed")
+        if self._should_raise:
+            raise RuntimeError("parser failed")
+
     async def parse_command(
         self,
         message_text: str,
@@ -145,33 +153,12 @@ class _FakeParser:
     ) -> CommandParseResult:
         _ = (message_text, now_utc)
         self.last_timezone = user_timezone
-        if self._service_error:
-            raise GeminiServiceError("Gemini request failed")
-        if self._should_raise:
-            raise RuntimeError("parser failed")
+        self._maybe_raise()
         if self.delete_result is not None:
             return CommandParseResult(
                 delete=self.delete_result, reminder=None
             )
         return CommandParseResult(delete=None, reminder=self._result)
-
-    async def parse_reminder(
-        self,
-        message_text: str,
-        now_utc: datetime,
-        user_timezone: str | None = None,
-    ) -> ParsedReminder | None:
-        _ = (message_text, now_utc)
-        self.last_timezone = user_timezone
-        if self._service_error:
-            raise GeminiServiceError("Gemini request failed")
-        if self._should_raise:
-            raise RuntimeError("parser failed")
-        return self._result
-
-    async def parse_delete_request(self, message_text: str):
-        _ = message_text
-        return self.delete_result
 
 
 class _FakeScheduler:
@@ -343,12 +330,8 @@ async def test_on_text_message_gemini_error_localized() -> None:
     assert "Ошибка сервиса" in bot.messages[-1]["text"]
 
 
-def test_i18n_translation_italian() -> None:
-    text = _t("it", "gemini_error")
-    assert "Errore del servizio promemoria" in text
-
-
-def test_i18n_translation_new_languages() -> None:
+def test_i18n_translation_gemini_error_non_english() -> None:
+    assert "Errore del servizio promemoria" in _t("it", "gemini_error")
     assert "Erreur du service" in _t("fr", "gemini_error")
     assert "Fehler im Erinnerungsdienst" in _t("de", "gemini_error")
     assert "Помилка сервісу" in _t("uk", "gemini_error")
