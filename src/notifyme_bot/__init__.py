@@ -1,0 +1,1 @@
+"""NotifyMe telegram bot package."""

@@ -1,0 +1,11 @@
+telegram_bot_token: "your-telegram-bot-token"
+gemini_api_key: "your-gemini-api-key"
+
+# Replace with the Gemini model id you want to use.
+gemini_model: "gemini-3.1-flash-lite-preview"
+
+# App behavior
+default_timezone: "UTC"
+database_path: "notifyme.sqlite3"
+# When false, only Telegram user_ids already present in the users table may use the bot.
+allow_new_users: true

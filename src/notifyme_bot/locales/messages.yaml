@@ -1,0 +1,300 @@
+en:
+  access_closed: |-
+    This bot is not accepting new users. Only existing users may use it.
+  start: |-
+    Subscription enabled. Send reminders in natural language.
+    "Please remind me to send 100$ to Alexei at 4th april"
+
+    Default timezone: {default_timezone}
+    Use /set_timezone Europe/Rome to set your timezone.
+  stop: Subscription disabled.
+  help: |-
+    Commands:
+    /start - subscribe and enable reminder parsing
+    /stop - unsubscribe
+    /set_timezone <Area/City> - set your timezone
+    /list - list pending reminders
+
+    Then send any reminder request in plain language.
+  no_pending: No pending reminders.
+  pending_header: "Pending reminders:"
+  set_timezone_missing: |-
+    Please provide timezone, for example:
+    /set_timezone Europe/Rome
+  set_timezone_invalid: |-
+    Unknown timezone. Use IANA format like Europe/Rome,
+    Europe/Kyiv, America/New_York.
+  set_timezone_saved: "Timezone saved: {timezone}"
+  unsubscribed: You are unsubscribed. Use /start to enable reminders.
+  gemini_error: |-
+    Reminder service error: Gemini is not responding right now.
+    Please try again in a minute.
+  parse_error: I could not parse this reminder right now. Please try again.
+  not_schedulable: I did not detect a schedulable reminder in that message.
+  delete_none: There are no pending reminders to delete.
+  delete_not_found: I could not find a matching reminder to delete.
+  delete_done: "Deleted reminders: {count}"
+  saved: "Reminder saved for {when}: {text}"
+  list_recur_minute: "every {n} min"
+  list_recur_hour: "every {n} h"
+  list_recur_day: "every {n} days"
+  list_recur_week: "every {n} weeks"
+  list_recur_weekly: "weekly on {days}"
+
+ru:
+  access_closed: |-
+    Бот не принимает новых пользователей. Доступ только у уже зарегистрированных.
+  start: |-
+    Подписка включена. Отправляйте напоминания обычным текстом.
+    "Напомни мне отправить 100$ Алексею 4 апреля"
+
+    Часовой пояс по умолчанию: {default_timezone}
+    Используйте /set_timezone Europe/Moscow для своего пояса.
+  stop: Подписка отключена.
+  help: |-
+    Команды:
+    /start - включить подписку и распознавание напоминаний
+    /stop - отключить подписку
+    /set_timezone <Area/City> - установить часовой пояс
+    /list - список активных напоминаний
+
+    После этого отправьте напоминание обычным текстом.
+  no_pending: "Активных напоминаний нет."
+  pending_header: "Активные напоминания:"
+  set_timezone_missing: |-
+    Укажите часовой пояс, например:
+    /set_timezone Europe/Moscow
+  set_timezone_invalid: |-
+    Неизвестный часовой пояс. Используйте формат IANA:
+    Europe/Moscow, Europe/Kyiv, America/New_York.
+  set_timezone_saved: "Часовой пояс сохранен: {timezone}"
+  unsubscribed: Вы отключены от подписки. Используйте /start, чтобы включить.
+  gemini_error: |-
+    Ошибка сервиса напоминаний: сейчас не получается связаться
+    с Gemini. Попробуйте еще раз через минуту.
+  parse_error: Сейчас не получилось разобрать напоминание. Попробуйте еще раз.
+  not_schedulable: Не удалось найти в сообщении напоминание с временем.
+  delete_none: Нет активных напоминаний для удаления.
+  delete_not_found: Не удалось найти подходящее напоминание для удаления.
+  delete_done: "Удалено напоминаний: {count}"
+  saved: "Напоминание сохранено на {when}: {text}"
+  list_recur_minute: "каждые {n} мин"
+  list_recur_hour: "каждые {n} ч"
+  list_recur_day: "каждые {n} дн."
+  list_recur_week: "каждые {n} нед."
+  list_recur_weekly: "по дням: {days}"
+
+it:
+  access_closed: |-
+    Il bot non accetta nuovi utenti. Solo gli utenti già registrati possono usarlo.
+  start: |-
+    Abbonamento attivato. Invia promemoria in linguaggio naturale.
+    "Per favore ricordami di mandare 100$ ad Alexei il 4 aprile"
+
+    Fuso orario predefinito: {default_timezone}
+    Usa /set_timezone Europe/Rome per impostare il tuo fuso.
+  stop: Abbonamento disattivato.
+  help: |-
+    Comandi:
+    /start - attiva iscrizione e analisi promemoria
+    /stop - disattiva iscrizione
+    /set_timezone <Area/City> - imposta il fuso orario
+    /list - elenco dei promemoria attivi
+
+    Poi invia un promemoria in linguaggio naturale.
+  no_pending: Nessun promemoria attivo.
+  pending_header: "Promemoria attivi:"
+  set_timezone_missing: |-
+    Inserisci il fuso orario, ad esempio:
+    /set_timezone Europe/Rome
+  set_timezone_invalid: |-
+    Fuso orario sconosciuto. Usa il formato IANA:
+    Europe/Rome, Europe/Kyiv, America/New_York.
+  set_timezone_saved: "Fuso orario salvato: {timezone}"
+  unsubscribed: Hai disattivato l'iscrizione. Usa /start per riattivarla.
+  gemini_error: |-
+    Errore del servizio promemoria: Gemini non risponde adesso.
+    Riprova tra un minuto.
+  parse_error: Non riesco a interpretare questo promemoria adesso. Riprova.
+  not_schedulable: Non ho rilevato un promemoria pianificabile nel messaggio.
+  delete_none: Non ci sono promemoria attivi da eliminare.
+  delete_not_found: Non trovo un promemoria corrispondente da eliminare.
+  delete_done: "Promemoria eliminati: {count}"
+  saved: "Promemoria salvato per {when}: {text}"
+  list_recur_minute: "ogni {n} min"
+  list_recur_hour: "ogni {n} h"
+  list_recur_day: "ogni {n} giorni"
+  list_recur_week: "ogni {n} settimane"
+  list_recur_weekly: "settimanale: {days}"
+
+fr:
+  access_closed: |-
+    Ce bot n'accepte pas de nouveaux utilisateurs. Seuls les utilisateurs existants peuvent l'utiliser.
+  start: |-
+    Abonnement activé. Envoyez des rappels en langage naturel.
+    "Rappelle-moi d'envoyer 100$ à Alexei le 4 avril"
+
+    Fuseau horaire par défaut : {default_timezone}
+    Utilisez /set_timezone Europe/Paris pour définir votre fuseau.
+  stop: Abonnement désactivé.
+  help: |-
+    Commandes :
+    /start - activer l'abonnement et l'analyse des rappels
+    /stop - désactiver l'abonnement
+    /set_timezone <Area/City> - définir votre fuseau horaire
+    /list - liste des rappels actifs
+
+    Ensuite, envoyez un rappel en langage naturel.
+  no_pending: Aucun rappel actif.
+  pending_header: "Rappels actifs :"
+  set_timezone_missing: |-
+    Indiquez un fuseau horaire, par exemple :
+    /set_timezone Europe/Paris
+  set_timezone_invalid: |-
+    Fuseau horaire inconnu. Utilisez le format IANA :
+    Europe/Paris, Europe/Kyiv, America/New_York.
+  set_timezone_saved: "Fuseau horaire enregistré : {timezone}"
+  unsubscribed: Vous êtes désabonné. Utilisez /start pour réactiver.
+  gemini_error: |-
+    Erreur du service de rappels : Gemini ne répond pas maintenant.
+    Réessayez dans une minute.
+  parse_error: Impossible d'analyser ce rappel maintenant. Réessayez.
+  not_schedulable: Je n'ai pas détecté de rappel planifiable dans ce message.
+  delete_none: Aucun rappel actif à supprimer.
+  delete_not_found: Je n'ai trouvé aucun rappel correspondant à supprimer.
+  delete_done: "Rappels supprimés : {count}"
+  saved: "Rappel enregistré pour {when} : {text}"
+  list_recur_minute: "toutes les {n} min"
+  list_recur_hour: "toutes les {n} h"
+  list_recur_day: "tous les {n} jours"
+  list_recur_week: "toutes les {n} semaines"
+  list_recur_weekly: "chaque semaine : {days}"
+
+de:
+  access_closed: |-
+    Dieser Bot nimmt keine neuen Nutzer an. Nur bestehende Nutzer können ihn verwenden.
+  start: |-
+    Abonnement aktiviert. Sende Erinnerungen in natürlicher Sprache.
+    "Erinnere mich daran, Alexei am 4. April 100$ zu senden"
+
+    Standard-Zeitzone: {default_timezone}
+    Nutze /set_timezone Europe/Berlin für deine Zeitzone.
+  stop: Abonnement deaktiviert.
+  help: |-
+    Befehle:
+    /start - Abonnement und Erinnerungsanalyse aktivieren
+    /stop - Abonnement deaktivieren
+    /set_timezone <Area/City> - Zeitzone festlegen
+    /list - aktive Erinnerungen anzeigen
+
+    Danach sende eine Erinnerung in natürlicher Sprache.
+  no_pending: Keine aktiven Erinnerungen.
+  pending_header: "Aktive Erinnerungen:"
+  set_timezone_missing: |-
+    Bitte gib eine Zeitzone an, zum Beispiel:
+    /set_timezone Europe/Berlin
+  set_timezone_invalid: |-
+    Unbekannte Zeitzone. Nutze das IANA-Format:
+    Europe/Berlin, Europe/Kyiv, America/New_York.
+  set_timezone_saved: "Zeitzone gespeichert: {timezone}"
+  unsubscribed: Du bist abgemeldet. Nutze /start zum Aktivieren.
+  gemini_error: |-
+    Fehler im Erinnerungsdienst: Gemini antwortet gerade nicht.
+    Bitte versuche es in einer Minute erneut.
+  parse_error: Ich konnte diese Erinnerung gerade nicht verarbeiten.
+  not_schedulable: Keine planbare Erinnerung in der Nachricht erkannt.
+  delete_none: Es gibt keine aktiven Erinnerungen zum Löschen.
+  delete_not_found: Keine passende Erinnerung zum Löschen gefunden.
+  delete_done: "Gelöschte Erinnerungen: {count}"
+  saved: "Erinnerung gespeichert für {when}: {text}"
+  list_recur_minute: "alle {n} Min."
+  list_recur_hour: "alle {n} Std."
+  list_recur_day: "alle {n} Tage"
+  list_recur_week: "alle {n} Wochen"
+  list_recur_weekly: "wöchentlich: {days}"
+
+uk:
+  access_closed: |-
+    Бот не приймає нових користувачів. Доступ лише для вже зареєстрованих.
+  start: |-
+    Підписку увімкнено. Надсилайте нагадування звичайною мовою.
+    "Нагадай мені надіслати 100$ Олексію 4 квітня"
+
+    Часовий пояс за замовчуванням: {default_timezone}
+    Використайте /set_timezone Europe/Kyiv для свого поясу.
+  stop: Підписку вимкнено.
+  help: |-
+    Команди:
+    /start - увімкнути підписку та розбір нагадувань
+    /stop - вимкнути підписку
+    /set_timezone <Area/City> - встановити часовий пояс
+    /list - список активних нагадувань
+
+    Після цього надішліть нагадування звичайним текстом.
+  no_pending: Активних нагадувань немає.
+  pending_header: "Активні нагадування:"
+  set_timezone_missing: |-
+    Вкажіть часовий пояс, наприклад:
+    /set_timezone Europe/Kyiv
+  set_timezone_invalid: |-
+    Невідомий часовий пояс. Використайте формат IANA:
+    Europe/Kyiv, Europe/Rome, America/New_York.
+  set_timezone_saved: "Часовий пояс збережено: {timezone}"
+  unsubscribed: Ви відписані. Використайте /start, щоб увімкнути підписку.
+  gemini_error: |-
+    Помилка сервісу нагадувань: зараз немає зв'язку з Gemini.
+    Спробуйте ще раз за хвилину.
+  parse_error: Зараз не вдалося розібрати нагадування. Спробуйте ще раз.
+  not_schedulable: Не вдалося знайти у повідомленні нагадування з часом.
+  delete_none: Немає активних нагадувань для видалення.
+  delete_not_found: Не вдалося знайти відповідне нагадування для видалення.
+  delete_done: "Видалено нагадувань: {count}"
+  saved: "Нагадування збережено на {when}: {text}"
+  list_recur_minute: "кожні {n} хв"
+  list_recur_hour: "кожні {n} год"
+  list_recur_day: "кожні {n} дн."
+  list_recur_week: "кожні {n} тиж."
+  list_recur_weekly: "щотижня: {days}"
+
+es:
+  access_closed: |-
+    Este bot no acepta usuarios nuevos. Solo pueden usarlo usuarios ya registrados.
+  start: |-
+    Suscripción activada. Envía recordatorios en lenguaje natural.
+    "Recuérdame enviar 100$ a Alexei el 4 de abril"
+
+    Zona horaria predeterminada: {default_timezone}
+    Usa /set_timezone Europe/Madrid para configurar tu zona.
+  stop: Suscripción desactivada.
+  help: |-
+    Comandos:
+    /start - activar suscripción y análisis de recordatorios
+    /stop - desactivar suscripción
+    /set_timezone <Area/City> - configurar zona horaria
+    /list - lista de recordatorios activos
+
+    Luego envía un recordatorio en lenguaje natural.
+  no_pending: No hay recordatorios activos.
+  pending_header: "Recordatorios activos:"
+  set_timezone_missing: |-
+    Indica una zona horaria, por ejemplo:
+    /set_timezone Europe/Madrid
+  set_timezone_invalid: |-
+    Zona horaria desconocida. Usa formato IANA:
+    Europe/Madrid, Europe/Kyiv, America/New_York.
+  set_timezone_saved: "Zona horaria guardada: {timezone}"
+  unsubscribed: Estás desuscrito. Usa /start para activarlo otra vez.
+  gemini_error: |-
+    Error del servicio de recordatorios: Gemini no responde ahora.
+    Vuelve a intentarlo en un minuto.
+  parse_error: No pude interpretar este recordatorio ahora. Inténtalo de nuevo.
+  not_schedulable: No detecté un recordatorio programable en ese mensaje.
+  delete_none: No hay recordatorios activos para eliminar.
+  delete_not_found: No encontré un recordatorio coincidente para eliminar.
+  delete_done: "Recordatorios eliminados: {count}"
+  saved: "Recordatorio guardado para {when}: {text}"
+  list_recur_minute: "cada {n} min"
+  list_recur_hour: "cada {n} h"
+  list_recur_day: "cada {n} días"
+  list_recur_week: "cada {n} semanas"
+  list_recur_weekly: "semanal: {days}"
