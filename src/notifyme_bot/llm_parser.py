@@ -1,34 +1,34 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-import httpx
-
+from notifyme_bot.llm.errors import LLMServiceError
+from notifyme_bot.llm.json_utils import extract_json_object, loads_json_object
+from notifyme_bot.llm.protocol import StructuredChatProvider
 from notifyme_bot.models import (
     CommandParseResult,
     ParsedDeleteRequest,
     ParsedReminder,
 )
 
-
-class GeminiServiceError(RuntimeError):
-    """Raised when Gemini request fails before a usable response."""
+# Backward-compatible name for callers and tests.
+GeminiServiceError = LLMServiceError
 
 
 class LLMReminderParser:
+    """Reminder/delete parsing via ``StructuredChatProvider``."""
+
     def __init__(
         self,
-        api_key: str,
-        model: str,
+        provider: StructuredChatProvider,
         default_timezone: str,
     ) -> None:
-        self._api_key = api_key
-        self._model_name = str(model).strip()
-        if not self._model_name:
-            raise ValueError("Gemini model name must be non-empty.")
+        self._provider = provider
         self._default_timezone = default_timezone
+
+    _loads_json_object = staticmethod(loads_json_object)
+    _extract_json_object = staticmethod(extract_json_object)
 
     async def parse_command(
         self,
@@ -36,7 +36,7 @@ class LLMReminderParser:
         now_utc: datetime,
         user_timezone: str | None = None,
     ) -> CommandParseResult:
-        """Classify the message and extract delete and/or schedule fields in one LLM call."""
+        """One LLM call: classify and extract delete and/or schedule."""
         now_utc = now_utc.astimezone(UTC)
         timezone_name = user_timezone or self._default_timezone
         local_now = now_utc.astimezone(ZoneInfo(timezone_name))
@@ -134,7 +134,10 @@ class LLMReminderParser:
             recurrence_weekdays=recurrence_weekdays,
         )
 
-    def _build_parsed_delete_from_data(self, data: dict) -> ParsedDeleteRequest | None:
+    def _build_parsed_delete_from_data(
+        self,
+        data: dict,
+    ) -> ParsedDeleteRequest | None:
         if not self._is_delete_intent(data):
             return None
 
@@ -145,53 +148,6 @@ class LLMReminderParser:
         return ParsedDeleteRequest(
             delete_all=delete_all, target_text=target_text
         )
-
-    @staticmethod
-    def _loads_json_object(content: str) -> dict:
-        text = content.strip()
-        if text.startswith("```"):
-            lines = text.splitlines()
-            if len(lines) >= 3 and lines[-1].strip() == "```":
-                text = "\n".join(lines[1:-1]).strip()
-            if text.startswith("json"):
-                text = text[4:].strip()
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            extracted = LLMReminderParser._extract_json_object(text)
-            if extracted is None:
-                raise
-            return json.loads(extracted)
-
-    @staticmethod
-    def _extract_json_object(text: str) -> str | None:
-        start = text.find("{")
-        if start < 0:
-            return None
-        depth = 0
-        in_string = False
-        escaped = False
-        for idx in range(start, len(text)):
-            char = text[idx]
-            if in_string:
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char == '"':
-                    in_string = False
-                continue
-            if char == '"':
-                in_string = True
-                continue
-            if char == "{":
-                depth += 1
-                continue
-            if char == "}":
-                depth -= 1
-                if depth == 0:
-                    return text[start : idx + 1]
-        return None
 
     @staticmethod
     def _command_schema() -> dict:
@@ -241,101 +197,11 @@ class LLMReminderParser:
             local_now=local_now,
             timezone_name=timezone_name,
         )
-        return await self._chat_json_completion(
+        return await self._provider.chat_json(
             system_prompt=system_prompt,
             user_prompt=message_text,
             response_schema=self._command_schema(),
         )
-
-    async def _chat_json_completion(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        response_schema: dict,
-    ) -> dict:
-        base_payload = {
-            "system_instruction": {
-                "parts": [{"text": system_prompt}],
-            },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": user_prompt}],
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-                "responseJsonSchema": response_schema,
-            },
-        }
-        last_error: Exception | None = None
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            payload = {**base_payload}
-            try:
-                response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{self._model_name}:generateContent",
-                    json=payload,
-                    headers={
-                        "x-goog-api-key": self._api_key,
-                        "Content-Type": "application/json",
-                    },
-                )
-                response.raise_for_status()
-                body = response.json()
-                return self._loads_json_object(
-                    self._extract_content(body)
-                )
-            except httpx.HTTPStatusError as exc:
-                error_body = (
-                    exc.response.text[:400] if exc.response else ""
-                )
-                status = (
-                    exc.response.status_code
-                    if exc.response
-                    else "unknown"
-                )
-                last_error = GeminiServiceError(
-                    "Gemini request failed "
-                    f"(status={status}, "
-                    f"model={self._model_name}, "
-                    f"body={error_body})"
-                )
-            except (
-                httpx.HTTPError,
-                json.JSONDecodeError,
-                KeyError,
-                IndexError,
-                TypeError,
-                ValueError,
-            ) as exc:
-                last_error = exc
-
-        raise GeminiServiceError(
-            f"Gemini request failed (model={self._model_name})"
-        ) from last_error
-
-    @staticmethod
-    def _extract_content(body: dict) -> str:
-        if "candidates" in body:
-            parts = body["candidates"][0]["content"]["parts"]
-            if isinstance(parts, list):
-                return "".join(
-                    part.get("text", "")
-                    for part in parts
-                    if isinstance(part, dict)
-                )
-            return str(parts)
-
-        # Backward-compatible fallback for legacy test fixtures.
-        content = body["choices"][0]["message"]["content"]
-        if isinstance(content, list):
-            return "".join(
-                part.get("text", "")
-                for part in content
-                if isinstance(part, dict) and part.get("type") == "text"
-            )
-        return str(content)
 
     @staticmethod
     def _parse_remind_at_to_utc(value: str, timezone_name: str) -> datetime:
@@ -459,4 +325,3 @@ class LLMReminderParser:
     def _is_delete_intent(cls, data: dict) -> bool:
         action = cls._normalize_action(data.get("action"))
         return action == "delete" or bool(data.get("should_delete"))
-

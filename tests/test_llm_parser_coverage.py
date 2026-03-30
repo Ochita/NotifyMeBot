@@ -7,12 +7,16 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 
+from notifyme_bot.llm.gemini import (
+    GeminiStructuredChatProvider,
+    extract_gemini_text,
+)
 from notifyme_bot.llm_parser import GeminiServiceError, LLMReminderParser
 
 
-def test_parser_rejects_empty_model_name() -> None:
+def test_gemini_provider_rejects_empty_model_name() -> None:
     with pytest.raises(ValueError, match="non-empty"):
-        LLMReminderParser(api_key="k", model="  ", default_timezone="UTC")
+        GeminiStructuredChatProvider(api_key="k", model="  ")
 
 
 @pytest.mark.asyncio
@@ -44,7 +48,10 @@ async def test_parse_reminder_returns_none_when_missing_texts(
         return _Resp(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser("k", "m", "UTC")
+    parser = LLMReminderParser(
+        provider=GeminiStructuredChatProvider("k", "m"),
+        default_timezone="UTC",
+    )
     out = await parser.parse_reminder("x", datetime.now(UTC))
     assert out is None
 
@@ -90,7 +97,10 @@ async def test_parse_reminder_returns_none_when_no_schedulable_time(
         return _Resp(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser("k", "m", "UTC")
+    parser = LLMReminderParser(
+        provider=GeminiStructuredChatProvider("k", "m"),
+        default_timezone="UTC",
+    )
     out = await parser.parse_reminder("x", datetime.now(UTC))
     assert out is None
 
@@ -158,7 +168,10 @@ async def test_chat_completion_http_status_error(
         )
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser("k", "gemini-test", "UTC")
+    parser = LLMReminderParser(
+        provider=GeminiStructuredChatProvider("k", "gemini-test"),
+        default_timezone="UTC",
+    )
     with pytest.raises(GeminiServiceError, match="model=gemini-test") as exc:
         await parser.parse_reminder("hi", datetime.now(UTC))
     assert exc.value.__cause__ is not None
@@ -173,12 +186,15 @@ async def test_chat_completion_bad_body_raises(
         return _Resp({})
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser("k", "m", "UTC")
+    parser = LLMReminderParser(
+        provider=GeminiStructuredChatProvider("k", "m"),
+        default_timezone="UTC",
+    )
     with pytest.raises(GeminiServiceError):
         await parser.parse_reminder("hi", datetime.now(UTC))
 
 
-def test_extract_content_candidates_non_list_parts() -> None:
+def test_extract_gemini_text_candidates_non_list_parts() -> None:
     body = {
         "candidates": [
             {
@@ -188,7 +204,7 @@ def test_extract_content_candidates_non_list_parts() -> None:
             }
         ]
     }
-    assert LLMReminderParser._extract_content(body) == "not-a-list"
+    assert extract_gemini_text(body) == "not-a-list"
 
 
 @pytest.mark.asyncio
@@ -216,7 +232,10 @@ async def test_parse_delete_request_delete_all_from_llm_flag(
         return _Resp(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser("k", "m", "UTC")
+    parser = LLMReminderParser(
+        provider=GeminiStructuredChatProvider("k", "m"),
+        default_timezone="UTC",
+    )
     req = await parser.parse_delete_request("please delete all reminders")
     assert req is not None
     assert req.delete_all is True
@@ -248,7 +267,10 @@ async def test_parse_delete_request_delete_all_not_inferred_from_message(
         return _Resp(payload)
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser("k", "m", "UTC")
+    parser = LLMReminderParser(
+        provider=GeminiStructuredChatProvider("k", "m"),
+        default_timezone="UTC",
+    )
     req = await parser.parse_delete_request("please delete all reminders")
     assert req is not None
     assert req.delete_all is False
