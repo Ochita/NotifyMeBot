@@ -39,6 +39,7 @@ en:
   list_recur_hour: "every {n} h"
   list_recur_day: "every {n} days"
   list_recur_week: "every {n} weeks"
+  list_recur_month: "every {n} months"
   list_recur_weekly: "weekly on {days}"
 
 ru:
@@ -82,6 +83,7 @@ ru:
   list_recur_hour: "каждые {n} ч"
   list_recur_day: "каждые {n} дн."
   list_recur_week: "каждые {n} нед."
+  list_recur_month: "каждые {n} мес."
   list_recur_weekly: "по дням: {days}"
 
 it:
@@ -125,6 +127,7 @@ it:
   list_recur_hour: "ogni {n} h"
   list_recur_day: "ogni {n} giorni"
   list_recur_week: "ogni {n} settimane"
+  list_recur_month: "ogni {n} mesi"
   list_recur_weekly: "settimanale: {days}"
 
 fr:
@@ -168,6 +171,7 @@ fr:
   list_recur_hour: "toutes les {n} h"
   list_recur_day: "tous les {n} jours"
   list_recur_week: "toutes les {n} semaines"
+  list_recur_month: "tous les {n} mois"
   list_recur_weekly: "chaque semaine : {days}"
 
 de:
@@ -211,6 +215,7 @@ de:
   list_recur_hour: "alle {n} Std."
   list_recur_day: "alle {n} Tage"
   list_recur_week: "alle {n} Wochen"
+  list_recur_month: "alle {n} Monate"
   list_recur_weekly: "wöchentlich: {days}"
 
 uk:
@@ -254,6 +259,7 @@ uk:
   list_recur_hour: "кожні {n} год"
   list_recur_day: "кожні {n} дн."
   list_recur_week: "кожні {n} тиж."
+  list_recur_month: "кожні {n} міс."
   list_recur_weekly: "щотижня: {days}"
 
 es:
@@ -297,4 +303,5 @@ es:
   list_recur_hour: "cada {n} h"
   list_recur_day: "cada {n} días"
   list_recur_week: "cada {n} semanas"
+  list_recur_month: "cada {n} meses"
   list_recur_weekly: "semanal: {days}"

@@ -123,5 +123,33 @@ class ReminderScheduler:
                 candidate_local += timedelta(weeks=interval)
             return candidate_local.astimezone(UTC)
 
+        if reminder.recurrence_unit == "month":
+            target_day = base_local.day
+            year = now_local.year
+            month = now_local.month
+            for _ in range(36):
+                last_day = ReminderScheduler._last_day_of_month(year, month)
+                day = min(target_day, last_day)
+                candidate_local = base_local.replace(
+                    year=year,
+                    month=month,
+                    day=day,
+                )
+                if candidate_local > now_local:
+                    return candidate_local.astimezone(UTC)
+                month += interval
+                year += (month - 1) // 12
+                month = ((month - 1) % 12) + 1
+            return (base_local + timedelta(days=31)).astimezone(UTC)
+
         # Fallback for unexpected recurrence configuration.
         return (base_local + timedelta(days=1)).astimezone(UTC)
+
+    @staticmethod
+    def _last_day_of_month(year: int, month: int) -> int:
+        if month == 2:
+            leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+            return 29 if leap else 28
+        if month in {4, 6, 9, 11}:
+            return 30
+        return 31

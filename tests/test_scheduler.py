@@ -198,3 +198,34 @@ def test_next_recurring_run_minutes() -> None:
     assert timedelta(minutes=1, seconds=50) <= delta <= timedelta(
         minutes=2, seconds=10
     )
+
+
+def test_next_recurring_run_monthly() -> None:
+    base_dt = datetime.now(UTC).replace(day=3, hour=9, minute=0, second=0)
+    if base_dt <= datetime.now(UTC):
+        # Keep the same day/time, just move to future month baseline.
+        month = base_dt.month + 1
+        year = base_dt.year + (month - 1) // 12
+        month = ((month - 1) % 12) + 1
+        base_dt = base_dt.replace(year=year, month=month)
+
+    month_reminder = Reminder(
+        id=4,
+        user_id=1,
+        chat_id=1,
+        source_text="every month on day 3",
+        reminder_text="pay rent",
+        notification_text="Reminder: pay rent.",
+        remind_at_utc=base_dt,
+        timezone="UTC",
+        is_recurring=True,
+        recurrence_unit="month",
+        recurrence_interval=1,
+        recurrence_weekdays=None,
+        created_at_utc=base_dt,
+    )
+
+    next_dt = ReminderScheduler._next_recurring_run(month_reminder)
+
+    assert next_dt > base_dt
+    assert next_dt.day == 3
