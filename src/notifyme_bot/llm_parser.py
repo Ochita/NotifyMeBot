@@ -98,7 +98,7 @@ class LLMReminderParser:
         )
         recurrence_unit = (
             recurrence_unit_raw
-            if recurrence_unit_raw in {"minute", "hour", "day", "week"}
+            if recurrence_unit_raw in {"minute", "hour", "day", "week", "month"}
             else None
         )
         recurrence_interval = self._positive_int_or_none(
@@ -109,8 +109,9 @@ class LLMReminderParser:
         )
 
         if is_recurring:
-            if recurrence_unit is None or recurrence_interval is None:
+            if recurrence_unit is None:
                 return None
+            recurrence_interval = recurrence_interval or 1
         else:
             recurrence_unit = None
             recurrence_interval = None
@@ -278,7 +279,7 @@ class LLMReminderParser:
             "as the user message, telling the user what to do. "
             "Do not repeat reminder_text; same meaning as reminder_text. "
             "If date is specified without time, assume 09:00 local time. "
-            "recurrence_unit must be one of minute, hour, day, week, none. "
+            "recurrence_unit must be one of minute, hour, day, week, month, none. "
             "For non-recurring reminders: is_recurring=false, "
             "recurrence_unit=none, recurrence_interval=0, "
             "recurrence_weekdays=[]. "
@@ -289,6 +290,8 @@ class LLMReminderParser:
             "first fire for one-shot reminders, and for recurring rules the first "
             "occurrence (you compute it from the user's wording). "
             "For weekly recurrence by weekdays, use Monday=0..Sunday=6. "
+            "For monthly recurrence, support any day-of-month 1..31 and set "
+            "remind_at_utc to the first valid occurrence after current local time. "
             f"Current local time: {local_now.isoformat()}. "
             f"User timezone: {timezone_name}."
         )
