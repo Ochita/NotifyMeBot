@@ -16,7 +16,7 @@ from notifyme_bot.bot import (
     stop,
 )
 from notifyme_bot.config import Settings
-from notifyme_bot.llm_parser import GeminiServiceError
+from notifyme_bot.llm.errors import LLMServiceError
 from notifyme_bot.models import (
     CommandParseResult,
     ParsedDeleteRequest,
@@ -141,7 +141,7 @@ class _FakeParser:
 
     def _maybe_raise(self) -> None:
         if self._service_error:
-            raise GeminiServiceError("LLM request failed")
+            raise LLMServiceError("LLM request failed")
         if self._should_raise:
             raise RuntimeError("parser failed")
 
@@ -308,7 +308,7 @@ async def test_on_text_message_parse_none_and_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_text_message_gemini_error_localized() -> None:
+async def test_on_text_message_llm_error_localized() -> None:
     bot = _FakeBot()
     repo = _FakeRepo()
     repo.subscribed[1] = True
@@ -330,12 +330,12 @@ async def test_on_text_message_gemini_error_localized() -> None:
     assert "Ошибка сервиса" in bot.messages[-1]["text"]
 
 
-def test_i18n_translation_gemini_error_non_english() -> None:
-    assert "Errore del servizio promemoria" in _t("it", "gemini_error")
-    assert "Erreur du service" in _t("fr", "gemini_error")
-    assert "Fehler im Erinnerungsdienst" in _t("de", "gemini_error")
-    assert "Помилка сервісу" in _t("uk", "gemini_error")
-    assert "Error del servicio" in _t("es", "gemini_error")
+def test_i18n_translation_llm_error_non_english() -> None:
+    assert "Errore del servizio promemoria" in _t("it", "llm_error")
+    assert "Erreur du service" in _t("fr", "llm_error")
+    assert "Fehler im Erinnerungsdienst" in _t("de", "llm_error")
+    assert "Помилка сервісу" in _t("uk", "llm_error")
+    assert "Error del servicio" in _t("es", "llm_error")
 
 
 @pytest.mark.asyncio

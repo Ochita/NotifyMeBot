@@ -26,8 +26,8 @@ en:
     Europe/Kyiv, America/New_York.
   set_timezone_saved: "Timezone saved: {timezone}"
   unsubscribed: You are unsubscribed. Use /start to enable reminders.
-  gemini_error: |-
-    Reminder service error: Gemini is not responding right now.
+  llm_error: |-
+    Reminder service error: the AI service is not responding right now.
     Please try again in a minute.
   parse_error: I could not parse this reminder right now. Please try again.
   not_schedulable: I did not detect a schedulable reminder in that message.
@@ -70,9 +70,9 @@ ru:
     Europe/Moscow, Europe/Kyiv, America/New_York.
   set_timezone_saved: "Часовой пояс сохранен: {timezone}"
   unsubscribed: Вы отключены от подписки. Используйте /start, чтобы включить.
-  gemini_error: |-
+  llm_error: |-
     Ошибка сервиса напоминаний: сейчас не получается связаться
-    с Gemini. Попробуйте еще раз через минуту.
+    с AI-сервисом. Попробуйте еще раз через минуту.
   parse_error: Сейчас не получилось разобрать напоминание. Попробуйте еще раз.
   not_schedulable: Не удалось найти в сообщении напоминание с временем.
   delete_none: Нет активных напоминаний для удаления.
@@ -114,8 +114,8 @@ it:
     Europe/Rome, Europe/Kyiv, America/New_York.
   set_timezone_saved: "Fuso orario salvato: {timezone}"
   unsubscribed: Hai disattivato l'iscrizione. Usa /start per riattivarla.
-  gemini_error: |-
-    Errore del servizio promemoria: Gemini non risponde adesso.
+  llm_error: |-
+    Errore del servizio promemoria: il servizio AI non risponde adesso.
     Riprova tra un minuto.
   parse_error: Non riesco a interpretare questo promemoria adesso. Riprova.
   not_schedulable: Non ho rilevato un promemoria pianificabile nel messaggio.
@@ -158,8 +158,8 @@ fr:
     Europe/Paris, Europe/Kyiv, America/New_York.
   set_timezone_saved: "Fuseau horaire enregistré : {timezone}"
   unsubscribed: Vous êtes désabonné. Utilisez /start pour réactiver.
-  gemini_error: |-
-    Erreur du service de rappels : Gemini ne répond pas maintenant.
+  llm_error: |-
+    Erreur du service de rappels : le service IA ne répond pas maintenant.
     Réessayez dans une minute.
   parse_error: Impossible d'analyser ce rappel maintenant. Réessayez.
   not_schedulable: Je n'ai pas détecté de rappel planifiable dans ce message.
@@ -202,8 +202,8 @@ de:
     Europe/Berlin, Europe/Kyiv, America/New_York.
   set_timezone_saved: "Zeitzone gespeichert: {timezone}"
   unsubscribed: Du bist abgemeldet. Nutze /start zum Aktivieren.
-  gemini_error: |-
-    Fehler im Erinnerungsdienst: Gemini antwortet gerade nicht.
+  llm_error: |-
+    Fehler im Erinnerungsdienst: Der KI-Dienst antwortet gerade nicht.
     Bitte versuche es in einer Minute erneut.
   parse_error: Ich konnte diese Erinnerung gerade nicht verarbeiten.
   not_schedulable: Keine planbare Erinnerung in der Nachricht erkannt.
@@ -246,8 +246,8 @@ uk:
     Europe/Kyiv, Europe/Rome, America/New_York.
   set_timezone_saved: "Часовий пояс збережено: {timezone}"
   unsubscribed: Ви відписані. Використайте /start, щоб увімкнути підписку.
-  gemini_error: |-
-    Помилка сервісу нагадувань: зараз немає зв'язку з Gemini.
+  llm_error: |-
+    Помилка сервісу нагадувань: зараз немає зв'язку з AI-сервісом.
     Спробуйте ще раз за хвилину.
   parse_error: Зараз не вдалося розібрати нагадування. Спробуйте ще раз.
   not_schedulable: Не вдалося знайти у повідомленні нагадування з часом.
@@ -290,8 +290,8 @@ es:
     Europe/Madrid, Europe/Kyiv, America/New_York.
   set_timezone_saved: "Zona horaria guardada: {timezone}"
   unsubscribed: Estás desuscrito. Usa /start para activarlo otra vez.
-  gemini_error: |-
-    Error del servicio de recordatorios: Gemini no responde ahora.
+  llm_error: |-
+    Error del servicio de recordatorios: el servicio de IA no responde ahora.
     Vuelve a intentarlo en un minuto.
   parse_error: No pude interpretar este recordatorio ahora. Inténtalo de nuevo.
   not_schedulable: No detecté un recordatorio programable en ese mensaje.
