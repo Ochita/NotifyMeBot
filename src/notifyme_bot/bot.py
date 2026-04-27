@@ -16,9 +16,9 @@ from telegram.ext import (
 from notifyme_bot.config import Settings
 from notifyme_bot.db import ReminderRepository
 from notifyme_bot.i18n import detect_locale, translate
+from notifyme_bot.llm.errors import LLMServiceError
 from notifyme_bot.llm.factory import llm_provider_from_settings
 from notifyme_bot.llm_parser import (
-    GeminiServiceError,
     LLMReminderParser,
 )
 from notifyme_bot.models import ParsedReminder, Reminder
@@ -293,11 +293,11 @@ async def on_text_message(
                 text=_t(locale, "not_schedulable"),
             )
             return
-    except GeminiServiceError:
-        LOGGER.exception("Gemini is unavailable")
+    except LLMServiceError:
+        LOGGER.exception("LLM provider is unavailable")
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=_t(locale, "gemini_error"),
+            text=_t(locale, "llm_error"),
         )
         return
     except Exception:

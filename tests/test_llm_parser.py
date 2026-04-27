@@ -138,7 +138,7 @@ def test_loads_json_object_from_fenced_json() -> None:
 
 
 @pytest.mark.asyncio
-async def test_parse_reminder_gemini_error(
+async def test_parse_reminder_llm_service_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_post(
