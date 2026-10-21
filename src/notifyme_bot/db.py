@@ -27,7 +27,12 @@ class ReminderRepository:
                 """
             )
             await self._ensure_columns(
-                conn, "users", {"timezone": "timezone TEXT"}
+                conn,
+                "users",
+                {
+                    "timezone": "timezone TEXT",
+                    "locale": "locale TEXT",
+                },
             )
             await conn.execute(
                 """
@@ -116,6 +121,26 @@ class ReminderRepository:
         async with aiosqlite.connect(self._database_path) as conn:
             async with conn.execute(
                 "SELECT timezone FROM users WHERE user_id = ?;",
+                (user_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return None
+        value = row[0]
+        return str(value) if value else None
+
+    async def set_user_locale(self, user_id: int, locale: str) -> None:
+        async with aiosqlite.connect(self._database_path) as conn:
+            await conn.execute(
+                "UPDATE users SET locale = ? WHERE user_id = ?;",
+                (locale, user_id),
+            )
+            await conn.commit()
+
+    async def get_user_locale(self, user_id: int) -> str | None:
+        async with aiosqlite.connect(self._database_path) as conn:
+            async with conn.execute(
+                "SELECT locale FROM users WHERE user_id = ?;",
                 (user_id,),
             ) as cursor:
                 row = await cursor.fetchone()

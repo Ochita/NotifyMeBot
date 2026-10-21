@@ -32,7 +32,10 @@ src/notifyme_bot/
   config.py
   models.py
   db.py
+  llm.py
   llm_parser.py
+  i18n.py
+  messages.yaml
   scheduler_service.py
   bot.py
 ```
@@ -123,6 +126,7 @@ docker compose down
 - `/start` subscribe user
 - `/stop` unsubscribe user
 - `/set_timezone <Area/City>` set user timezone (example: `Europe/Rome`)
+- `/set_locale <code>` set your language (example: `ru`)
 - `/list` list pending reminders
 - `/help` show help
 - Natural text like "cancel reminder about Alexei" also works

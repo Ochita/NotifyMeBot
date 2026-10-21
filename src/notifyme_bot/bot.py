@@ -15,9 +15,9 @@ from telegram.ext import (
 
 from notifyme_bot.config import AITUNNEL_BASE_URL, Settings
 from notifyme_bot.db import ReminderRepository
-from notifyme_bot.i18n import detect_locale, translate
-from notifyme_bot.llm.errors import LLMServiceError
-from notifyme_bot.llm.openai_compatible import (
+from notifyme_bot.i18n import detect_locale, supported_locales, translate
+from notifyme_bot.llm import (
+    LLMServiceError,
     OpenAICompatibleStructuredChatProvider,
 )
 from notifyme_bot.llm_parser import (
@@ -76,6 +76,7 @@ def build_application(settings: Settings) -> Application:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stop", stop))
     application.add_handler(CommandHandler("set_timezone", set_timezone))
+    application.add_handler(CommandHandler("set_locale", set_locale))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("list", list_reminders))
     application.add_handler(
@@ -105,7 +106,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
-    locale = _locale_code(update, context)
+    locale = await _locale_code(update, context)
     if await _is_access_denied(
         update, context, repository, settings, locale
     ):
@@ -129,7 +130,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
-    locale = _locale_code(update, context)
+    locale = await _locale_code(update, context)
     if await _is_access_denied(
         update, context, repository, settings, locale
     ):
@@ -150,7 +151,7 @@ async def help_command(
         return
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
-    locale = _locale_code(update, context)
+    locale = await _locale_code(update, context)
     if await _is_access_denied(
         update, context, repository, settings, locale
     ):
@@ -166,7 +167,7 @@ async def list_reminders(
 ) -> None:
     if update.effective_user is None or update.effective_chat is None:
         return
-    locale = _locale_code(update, context)
+    locale = await _locale_code(update, context)
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
     if await _is_access_denied(
@@ -210,7 +211,7 @@ async def set_timezone(
 ) -> None:
     if update.effective_user is None or update.effective_chat is None:
         return
-    locale = _locale_code(update, context)
+    locale = await _locale_code(update, context)
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
     if await _is_access_denied(
@@ -246,6 +247,43 @@ async def set_timezone(
     )
 
 
+async def set_locale(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if update.effective_user is None or update.effective_chat is None:
+        return
+    locale = await _locale_code(update, context)
+    repository: ReminderRepository = context.application.bot_data["repository"]
+    settings: Settings = context.application.bot_data["settings"]
+    if await _is_access_denied(
+        update, context, repository, settings, locale
+    ):
+        return
+    if not context.args:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=_t(locale, "set_locale_missing"),
+        )
+        return
+    chosen = context.args[0].strip().lower().split("-", maxsplit=1)[0]
+    if chosen not in supported_locales():
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=_t(locale, "set_locale_invalid"),
+        )
+        return
+    await repository.upsert_user(
+        user_id=update.effective_user.id,
+        chat_id=update.effective_chat.id,
+    )
+    await repository.set_user_locale(update.effective_user.id, chosen)
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=_t(chosen, "set_locale_saved", locale=chosen),
+    )
+
+
 async def on_text_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -258,7 +296,7 @@ async def on_text_message(
     message_text = (update.effective_message.text or "").strip()
     if not message_text:
         return
-    locale = _locale_code(update, context)
+    locale = await _locale_code(update, context)
 
     repository, parser, scheduler, settings = _runtime_services(context)
     if await _is_access_denied(
@@ -278,10 +316,14 @@ async def on_text_message(
             user_id=update.effective_user.id,
             fallback=settings.default_timezone,
         )
+        pending = await repository.list_pending_for_user(
+            update.effective_user.id
+        )
         parsed_result = await parser.parse_command(
             message_text=message_text,
             now_utc=datetime.now(UTC),
             user_timezone=timezone_name,
+            reminders=pending,
         )
         if parsed_result.delete is not None:
             await _handle_delete_request(
@@ -290,7 +332,7 @@ async def on_text_message(
                 repository=repository,
                 locale=locale,
                 delete_all=parsed_result.delete.delete_all,
-                target_text=parsed_result.delete.target_text,
+                delete_ids=parsed_result.delete.delete_ids,
             )
             return
         parsed = parsed_result.reminder
@@ -381,7 +423,7 @@ async def _handle_delete_request(
     repository: ReminderRepository,
     locale: str,
     delete_all: bool,
-    target_text: str | None,
+    delete_ids: list[int],
 ) -> None:
     if update.effective_user is None or update.effective_chat is None:
         return
@@ -397,16 +439,11 @@ async def _handle_delete_request(
 
     if delete_all:
         to_delete = reminders
-    elif target_text:
-        needle = target_text.casefold()
-        to_delete = [
-            reminder
-            for reminder in reminders
-            if _reminder_matches(needle, reminder)
-        ]
     else:
-        # If target is not specified, remove nearest upcoming reminder.
-        to_delete = [reminders[0]]
+        wanted = set(delete_ids)
+        to_delete = [
+            reminder for reminder in reminders if reminder.id in wanted
+        ]
 
     if not to_delete:
         await context.bot.send_message(
@@ -424,23 +461,18 @@ async def _handle_delete_request(
     )
 
 
-def _reminder_matches(needle: str, reminder: Reminder) -> bool:
-    haystacks = (
-        reminder.source_text,
-        reminder.reminder_text,
-        reminder.notification_text,
-    )
-    return any(needle in text.casefold() for text in haystacks)
-
-
-def _locale_code(
+async def _locale_code(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> str:
     settings: Settings = context.application.bot_data["settings"]
-    language_code = None
-    if update.effective_user and update.effective_user.language_code:
-        language_code = update.effective_user.language_code
+    repository: ReminderRepository = context.application.bot_data["repository"]
+    user = update.effective_user
+    if user is not None:
+        stored = await repository.get_user_locale(user.id)
+        if stored in supported_locales():
+            return stored
+    language_code = user.language_code if user is not None else None
     return detect_locale(language_code, settings.default_locale)
 
 

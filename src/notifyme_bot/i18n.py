@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-_MESSAGES_PATH = Path(__file__).with_name("locales") / "messages.yaml"
+_MESSAGES_PATH = Path(__file__).with_name("messages.yaml")
 
 
 def _load_messages() -> dict[str, dict[str, str]]:

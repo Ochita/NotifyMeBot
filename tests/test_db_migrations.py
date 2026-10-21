@@ -47,9 +47,12 @@ def test_init_migrates_legacy_reminders_table(tmp_path: Path) -> None:
     conn = sqlite3.connect(str(db_path))
     cur = conn.execute("PRAGMA table_info(reminders);")
     cols = {row[1] for row in cur.fetchall()}
+    users = conn.execute("PRAGMA table_info(users);")
+    user_cols = {row[1] for row in users.fetchall()}
     conn.close()
     assert "timezone" in cols
     assert "notification_text" in cols
+    assert "locale" in user_cols
 
 
 def test_parse_weekdays_invalid_json_returns_none() -> None:

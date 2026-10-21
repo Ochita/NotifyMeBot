@@ -16,7 +16,7 @@ from notifyme_bot.bot import (
     stop,
 )
 from notifyme_bot.config import Settings
-from notifyme_bot.llm.errors import LLMServiceError
+from notifyme_bot.llm import LLMServiceError
 from notifyme_bot.models import (
     CommandParseResult,
     ParsedDeleteRequest,
@@ -55,6 +55,7 @@ class _FakeRepo:
         self.created: list[Reminder] = []
         self.pending: list[Reminder] = []
         self.timezones: dict[int, str] = {}
+        self.locales: dict[int, str] = {}
         self.deleted_ids: list[int] = []
         self.known_users: set[int] = set()
 
@@ -79,6 +80,12 @@ class _FakeRepo:
 
     async def get_user_timezone(self, user_id: int) -> str | None:
         return self.timezones.get(user_id)
+
+    async def set_user_locale(self, user_id: int, locale: str) -> None:
+        self.locales[user_id] = locale
+
+    async def get_user_locale(self, user_id: int) -> str | None:
+        return self.locales.get(user_id)
 
     async def list_pending_for_user(self, user_id: int) -> list[Reminder]:
         _ = user_id
@@ -150,8 +157,9 @@ class _FakeParser:
         message_text: str,
         now_utc: datetime,
         user_timezone: str | None = None,
+        reminders: list | None = None,
     ) -> CommandParseResult:
-        _ = (message_text, now_utc)
+        _ = (message_text, now_utc, reminders)
         self.last_timezone = user_timezone
         self._maybe_raise()
         if self.delete_result is not None:
@@ -449,7 +457,7 @@ async def test_on_text_message_delete_by_text() -> None:
     parser = _FakeParser(None)
     parser.delete_result = ParsedDeleteRequest(
         delete_all=False,
-        target_text="Alexei",
+        delete_ids=[10],
     )
     scheduler = _FakeScheduler()
     app = _App(
@@ -479,7 +487,7 @@ async def test_on_text_message_delete_none() -> None:
     parser = _FakeParser(None)
     parser.delete_result = ParsedDeleteRequest(
         delete_all=True,
-        target_text=None,
+        delete_ids=[],
     )
     scheduler = _FakeScheduler()
     app = _App(
@@ -524,7 +532,7 @@ async def test_on_text_message_delete_not_found() -> None:
     parser = _FakeParser(None)
     parser.delete_result = ParsedDeleteRequest(
         delete_all=False,
-        target_text="Alexei",
+        delete_ids=[99],
     )
     scheduler = _FakeScheduler()
     app = _App(

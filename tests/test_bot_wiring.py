@@ -150,7 +150,7 @@ async def test_handle_delete_request_early_return(tmp_path: Path) -> None:
         repository=MagicMock(),
         locale="en",
         delete_all=False,
-        target_text=None,
+        delete_ids=[],
     )
 
 
@@ -184,6 +184,7 @@ async def test_handle_delete_request_delete_nearest_without_target(
         repository=repo,
         locale="en",
         delete_all=False,
-        target_text=None,
+        delete_ids=[],
     )
-    repo.delete_reminder.assert_called_once_with(9)
+    repo.delete_reminder.assert_not_called()
+    ctx.bot.send_message.assert_awaited()

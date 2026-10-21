@@ -7,9 +7,7 @@ import json as json_stdlib
 import httpx
 import pytest
 
-from notifyme_bot.llm.openai_compatible import (
-    OpenAICompatibleStructuredChatProvider,
-)
+from notifyme_bot.llm import OpenAICompatibleStructuredChatProvider
 
 
 class _OkResponse:

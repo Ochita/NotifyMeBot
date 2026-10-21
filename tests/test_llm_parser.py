@@ -10,8 +10,8 @@ import pytest
 from chat_payloads import chat_completion_response
 from http_fakes import JsonHttpResponse
 
-from notifyme_bot.llm.errors import LLMServiceError
-from notifyme_bot.llm.openai_compatible import (
+from notifyme_bot.llm import (
+    LLMServiceError,
     OpenAICompatibleStructuredChatProvider,
 )
 from notifyme_bot.llm_parser import LLMReminderParser
@@ -153,7 +153,7 @@ async def test_parse_delete_request_success(
                         {
                             "should_delete": True,
                             "delete_all": False,
-                            "target_text": "Alexei",
+                            "delete_ids": [10],
                         }
                     )
                 }
@@ -176,7 +176,7 @@ async def test_parse_delete_request_success(
     ).delete
     assert parsed is not None
     assert parsed.delete_all is False
-    assert parsed.target_text == "Alexei"
+    assert parsed.delete_ids == [10]
 
 
 @pytest.mark.asyncio
@@ -279,7 +279,8 @@ async def test_parse_reminder_prompt_uses_command_contract(
 
     system_prompt = captured_prompt["system"]
     assert "Allowed action values: store, delete, none." in system_prompt
-    assert "Do not include examples in your response." in system_prompt
+    assert "delete_ids" in system_prompt
+    assert "Pending reminders" in system_prompt
 
 
 @pytest.mark.asyncio

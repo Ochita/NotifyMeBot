@@ -8,8 +8,8 @@ import httpx
 import pytest
 from http_fakes import JsonHttpResponse
 
-from notifyme_bot.llm.errors import LLMServiceError
-from notifyme_bot.llm.openai_compatible import (
+from notifyme_bot.llm import (
+    LLMServiceError,
     OpenAICompatibleStructuredChatProvider,
 )
 from notifyme_bot.llm_parser import LLMReminderParser
@@ -189,7 +189,7 @@ async def test_parse_delete_request_delete_all_from_llm_flag(
                         {
                             "should_delete": True,
                             "delete_all": True,
-                            "target_text": "",
+                            "delete_ids": [1],
                         }
                     )
                 }
@@ -212,7 +212,7 @@ async def test_parse_delete_request_delete_all_from_llm_flag(
     ).delete
     assert req is not None
     assert req.delete_all is True
-    assert req.target_text is None
+    assert req.delete_ids == []
 
 
 @pytest.mark.asyncio
@@ -228,7 +228,7 @@ async def test_parse_delete_request_delete_all_not_inferred_from_message(
                         {
                             "should_delete": True,
                             "delete_all": False,
-                            "target_text": "",
+                            "delete_ids": [],
                         }
                     )
                 }

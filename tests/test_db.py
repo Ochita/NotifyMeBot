@@ -24,6 +24,8 @@ async def test_repository_subscription_and_reminders(tmp_path: Path) -> None:
 
     await repo.set_user_timezone(user_id=1, timezone="Europe/Rome")
     assert await repo.get_user_timezone(1) == "Europe/Rome"
+    await repo.set_user_locale(user_id=1, locale="ru")
+    assert await repo.get_user_locale(1) == "ru"
 
     await repo.set_subscription(user_id=1, is_subscribed=True)
     remind_at = datetime.now(UTC) + timedelta(minutes=10)

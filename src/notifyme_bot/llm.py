@@ -4,7 +4,9 @@ import json
 
 import httpx
 
-from notifyme_bot.llm.errors import LLMServiceError
+
+class LLMServiceError(RuntimeError):
+    """Raised when an LLM request fails before a usable structured response."""
 
 
 class OpenAICompatibleStructuredChatProvider:

@@ -13,6 +13,7 @@ en:
     /start - subscribe and enable reminder parsing
     /stop - unsubscribe
     /set_timezone <Area/City> - set your timezone
+    /set_locale <code> - set your language
     /list - list pending reminders
 
     Then send any reminder request in plain language.
@@ -25,6 +26,11 @@ en:
     Unknown timezone. Use IANA format like Europe/Rome,
     Europe/Kyiv, America/New_York.
   set_timezone_saved: "Timezone saved: {timezone}"
+  set_locale_missing: |-
+    Provide a language code, for example:
+    /set_locale ru
+  set_locale_invalid: "Unknown language. Use en, ru, uk, it, fr, de, or es."
+  set_locale_saved: "Language saved: {locale}"
   unsubscribed: You are unsubscribed. Use /start to enable reminders.
   llm_error: |-
     Reminder service error: the AI service is not responding right now.
@@ -57,6 +63,7 @@ ru:
     /start - включить подписку и распознавание напоминаний
     /stop - отключить подписку
     /set_timezone <Area/City> - установить часовой пояс
+    /set_locale <код> - установить язык
     /list - список активных напоминаний
 
     После этого отправьте напоминание обычным текстом.
@@ -69,6 +76,11 @@ ru:
     Неизвестный часовой пояс. Используйте формат IANA:
     Europe/Moscow, Europe/Kyiv, America/New_York.
   set_timezone_saved: "Часовой пояс сохранен: {timezone}"
+  set_locale_missing: |-
+    Укажите код языка, например:
+    /set_locale ru
+  set_locale_invalid: "Неизвестный язык. Доступны en, ru, uk, it, fr, de, es."
+  set_locale_saved: "Язык сохранен: {locale}"
   unsubscribed: Вы отключены от подписки. Используйте /start, чтобы включить.
   llm_error: |-
     Ошибка сервиса напоминаний: сейчас не получается связаться
@@ -101,6 +113,7 @@ it:
     /start - attiva iscrizione e analisi promemoria
     /stop - disattiva iscrizione
     /set_timezone <Area/City> - imposta il fuso orario
+    /set_locale <codice> - imposta la lingua
     /list - elenco dei promemoria attivi
 
     Poi invia un promemoria in linguaggio naturale.
@@ -113,6 +126,11 @@ it:
     Fuso orario sconosciuto. Usa il formato IANA:
     Europe/Rome, Europe/Kyiv, America/New_York.
   set_timezone_saved: "Fuso orario salvato: {timezone}"
+  set_locale_missing: |-
+    Indica il codice della lingua, per esempio:
+    /set_locale it
+  set_locale_invalid: "Lingua sconosciuta. Usa en, ru, uk, it, fr, de o es."
+  set_locale_saved: "Lingua salvata: {locale}"
   unsubscribed: Hai disattivato l'iscrizione. Usa /start per riattivarla.
   llm_error: |-
     Errore del servizio promemoria: il servizio AI non risponde adesso.
@@ -145,6 +163,7 @@ fr:
     /start - activer l'abonnement et l'analyse des rappels
     /stop - désactiver l'abonnement
     /set_timezone <Area/City> - définir votre fuseau horaire
+    /set_locale <code> - définir la langue
     /list - liste des rappels actifs
 
     Ensuite, envoyez un rappel en langage naturel.
@@ -157,6 +176,11 @@ fr:
     Fuseau horaire inconnu. Utilisez le format IANA :
     Europe/Paris, Europe/Kyiv, America/New_York.
   set_timezone_saved: "Fuseau horaire enregistré : {timezone}"
+  set_locale_missing: |-
+    Indiquez un code de langue, par exemple :
+    /set_locale fr
+  set_locale_invalid: "Langue inconnue. Utilisez en, ru, uk, it, fr, de ou es."
+  set_locale_saved: "Langue enregistrée : {locale}"
   unsubscribed: Vous êtes désabonné. Utilisez /start pour réactiver.
   llm_error: |-
     Erreur du service de rappels : le service IA ne répond pas maintenant.
@@ -189,6 +213,7 @@ de:
     /start - Abonnement und Erinnerungsanalyse aktivieren
     /stop - Abonnement deaktivieren
     /set_timezone <Area/City> - Zeitzone festlegen
+    /set_locale <Code> - Sprache festlegen
     /list - aktive Erinnerungen anzeigen
 
     Danach sende eine Erinnerung in natürlicher Sprache.
@@ -201,6 +226,11 @@ de:
     Unbekannte Zeitzone. Nutze das IANA-Format:
     Europe/Berlin, Europe/Kyiv, America/New_York.
   set_timezone_saved: "Zeitzone gespeichert: {timezone}"
+  set_locale_missing: |-
+    Gib einen Sprachcode an, zum Beispiel:
+    /set_locale de
+  set_locale_invalid: "Unbekannte Sprache. Nutze en, ru, uk, it, fr, de oder es."
+  set_locale_saved: "Sprache gespeichert: {locale}"
   unsubscribed: Du bist abgemeldet. Nutze /start zum Aktivieren.
   llm_error: |-
     Fehler im Erinnerungsdienst: Der KI-Dienst antwortet gerade nicht.
@@ -233,6 +263,7 @@ uk:
     /start - увімкнути підписку та розбір нагадувань
     /stop - вимкнути підписку
     /set_timezone <Area/City> - встановити часовий пояс
+    /set_locale <код> - встановити мову
     /list - список активних нагадувань
 
     Після цього надішліть нагадування звичайним текстом.
@@ -245,6 +276,11 @@ uk:
     Невідомий часовий пояс. Використайте формат IANA:
     Europe/Kyiv, Europe/Rome, America/New_York.
   set_timezone_saved: "Часовий пояс збережено: {timezone}"
+  set_locale_missing: |-
+    Вкажіть код мови, наприклад:
+    /set_locale uk
+  set_locale_invalid: "Невідома мова. Доступні en, ru, uk, it, fr, de, es."
+  set_locale_saved: "Мову збережено: {locale}"
   unsubscribed: Ви відписані. Використайте /start, щоб увімкнути підписку.
   llm_error: |-
     Помилка сервісу нагадувань: зараз немає зв'язку з AI-сервісом.
@@ -277,6 +313,7 @@ es:
     /start - activar suscripción y análisis de recordatorios
     /stop - desactivar suscripción
     /set_timezone <Area/City> - configurar zona horaria
+    /set_locale <código> - configurar idioma
     /list - lista de recordatorios activos
 
     Luego envía un recordatorio en lenguaje natural.
@@ -289,6 +326,11 @@ es:
     Zona horaria desconocida. Usa formato IANA:
     Europe/Madrid, Europe/Kyiv, America/New_York.
   set_timezone_saved: "Zona horaria guardada: {timezone}"
+  set_locale_missing: |-
+    Indica un código de idioma, por ejemplo:
+    /set_locale es
+  set_locale_invalid: "Idioma desconocido. Usa en, ru, uk, it, fr, de o es."
+  set_locale_saved: "Idioma guardado: {locale}"
   unsubscribed: Estás desuscrito. Usa /start para activarlo otra vez.
   llm_error: |-
     Error del servicio de recordatorios: el servicio de IA no responde ahora.

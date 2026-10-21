@@ -35,7 +35,7 @@ class ParsedReminder:
 @dataclass(slots=True)
 class ParsedDeleteRequest:
     delete_all: bool
-    target_text: str | None
+    delete_ids: list[int]
 
 
 @dataclass(slots=True)

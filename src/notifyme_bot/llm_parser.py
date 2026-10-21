@@ -3,13 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from notifyme_bot.llm.openai_compatible import (
-    OpenAICompatibleStructuredChatProvider,
-)
+from notifyme_bot.llm import OpenAICompatibleStructuredChatProvider
 from notifyme_bot.models import (
     CommandParseResult,
     ParsedDeleteRequest,
     ParsedReminder,
+    Reminder,
 )
 
 
@@ -29,6 +28,7 @@ class LLMReminderParser:
         message_text: str,
         now_utc: datetime,
         user_timezone: str | None = None,
+        reminders: list[Reminder] | None = None,
     ) -> CommandParseResult:
         """One LLM call: classify and extract delete and/or schedule."""
         now_utc = now_utc.astimezone(UTC)
@@ -38,6 +38,7 @@ class LLMReminderParser:
             message_text=message_text,
             local_now=local_now,
             timezone_name=timezone_name,
+            reminders=reminders or [],
         )
         delete = self._build_parsed_delete_from_data(data)
         reminder = self._build_parsed_reminder_from_data(
@@ -117,11 +118,11 @@ class LLMReminderParser:
             return None
 
         delete_all = bool(data.get("delete_all"))
-        target_text = str(data.get("target_text", "")).strip() or None
-        if delete_all:
-            target_text = None
         return ParsedDeleteRequest(
-            delete_all=delete_all, target_text=target_text
+            delete_all=delete_all,
+            delete_ids=[] if delete_all else self._normalize_ids(
+                data.get("delete_ids")
+            ),
         )
 
     @staticmethod
@@ -133,7 +134,10 @@ class LLMReminderParser:
                 "should_schedule": {"type": "boolean"},
                 "should_delete": {"type": "boolean"},
                 "delete_all": {"type": "boolean"},
-                "target_text": {"type": "string"},
+                "delete_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                },
                 "reminder_text": {"type": "string"},
                 "notification_text": {"type": "string"},
                 "remind_at_utc": {"type": "string"},
@@ -150,7 +154,7 @@ class LLMReminderParser:
                 "should_schedule",
                 "should_delete",
                 "delete_all",
-                "target_text",
+                "delete_ids",
                 "reminder_text",
                 "notification_text",
                 "remind_at_utc",
@@ -167,10 +171,12 @@ class LLMReminderParser:
         message_text: str,
         local_now: datetime,
         timezone_name: str,
+        reminders: list[Reminder],
     ) -> dict:
         system_prompt = self._command_prompt(
             local_now=local_now,
             timezone_name=timezone_name,
+            reminders=reminders,
         )
         return await self._provider.chat_json(
             system_prompt=system_prompt,
@@ -217,14 +223,35 @@ class LLMReminderParser:
         return result or None
 
     @staticmethod
+    def _normalize_ids(value: object) -> list[int]:
+        if not isinstance(value, list):
+            return []
+        result: list[int] = []
+        for item in value:
+            try:
+                number = int(item)
+            except (TypeError, ValueError):
+                continue
+            if number not in result:
+                result.append(number)
+        return result
+
+    @staticmethod
     def _command_prompt(
         local_now: datetime,
         timezone_name: str,
+        reminders: list[Reminder],
     ) -> str:
+        if reminders:
+            catalog = "\n".join(
+                f"{item.id}: {item.reminder_text}" for item in reminders
+            )
+        else:
+            catalog = "none"
         return (
             "You extract command intent from user messages for reminder bot. "
             "Return strict JSON object with keys: "
-            "action, should_schedule, should_delete, delete_all, target_text, "
+            "action, should_schedule, should_delete, delete_all, delete_ids, "
             "reminder_text, notification_text, remind_at_utc, is_recurring, "
             "recurrence_unit, recurrence_interval, recurrence_weekdays. "
             "Allowed action values: store, delete, none. "
@@ -236,8 +263,9 @@ class LLMReminderParser:
             "action=delete and should_delete=true. "
             "When no relevant command, use action=none and both booleans "
             "false. delete_all must be true only if user clearly asks to "
-            "remove all. target_text should be concise hint text for matching "
-            "one reminder. "
+            "remove all pending reminders. delete_ids must list only ids "
+            "from Pending reminders that the user wants removed. Use [] "
+            "when nothing matches. Do not invent ids. "
             "If the message could be read as both delete and schedule, "
             "prefer delete (action=delete, should_delete=true). "
             "reminder_text should capture the user task verbatim and concise. "
@@ -267,7 +295,8 @@ class LLMReminderParser:
             "For monthly recurrence, support any day-of-month 1..31 and set "
             "remind_at_utc to the first valid occurrence after current local time. "
             f"Current local time: {local_now.isoformat()}. "
-            f"User timezone: {timezone_name}."
+            f"User timezone: {timezone_name}. "
+            f"Pending reminders (id: text):\n{catalog}"
         )
 
     @staticmethod

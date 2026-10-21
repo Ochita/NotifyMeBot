@@ -31,7 +31,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-notifyme_bot = ["locales/*.yaml"]
+notifyme_bot = ["messages.yaml"]
 
 [tool.ruff]
 line-length = 79
