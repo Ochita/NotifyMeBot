@@ -4,4 +4,5 @@ api_key: "sk-aitunnel-your-key"
 model_name: "gpt-4.1-nano"
 
 default_timezone: "UTC"
+default_locale: "en"
 database_path: "/app/data/notifyme.sqlite3"

@@ -30,6 +30,7 @@ def _settings(db_path: Path) -> Settings:
         model_name="gpt-4.1-nano",
         database_path=str(db_path),
         default_timezone="UTC",
+        default_locale="en",
         allow_new_users=True,
     )
 

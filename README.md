@@ -85,7 +85,7 @@ Edit `config/settings.yaml` and set:
 - `base_url` (default `https://api.aitunnel.ru/v1`)
 - `api_key` (AITunnel key, `sk-aitunnel-…`)
 - `model_name` (default `gpt-4.1-nano`)
-- optionally `default_timezone`
+- optionally `default_timezone` and `default_locale` (`en`, `ru`, `uk`, `it`, `fr`, `de`, `es`)
 
 2. Build image:
 

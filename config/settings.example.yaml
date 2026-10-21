@@ -8,6 +8,7 @@ model_name: "gpt-4.1-nano"
 
 # App behavior
 default_timezone: "UTC"
+default_locale: "en"
 database_path: "notifyme.sqlite3"
 # When false, only Telegram user_ids already present in the users table may use the bot.
 allow_new_users: true

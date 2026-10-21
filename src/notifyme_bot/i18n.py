@@ -4,7 +4,6 @@ from pathlib import Path
 
 import yaml
 
-_DEFAULT_LOCALE = "en"
 _MESSAGES_PATH = Path(__file__).with_name("locales") / "messages.yaml"
 
 
@@ -22,14 +21,21 @@ _MESSAGES = _load_messages()
 
 
 def translate(locale: str, key: str, **kwargs: str) -> str:
-    messages = _MESSAGES.get(locale, _MESSAGES[_DEFAULT_LOCALE])
-    template = messages.get(key, _MESSAGES[_DEFAULT_LOCALE][key])
+    messages = _MESSAGES.get(locale, _MESSAGES["en"])
+    template = messages.get(key, _MESSAGES["en"][key])
     return template.format(**kwargs)
 
 
-def detect_locale(user_language_code: str | None) -> str:
+def supported_locales() -> frozenset[str]:
+    return frozenset(_MESSAGES)
+
+
+def detect_locale(
+    user_language_code: str | None,
+    default_locale: str,
+) -> str:
     if user_language_code:
         base = user_language_code.lower().split("-", maxsplit=1)[0]
         if base in _MESSAGES:
             return base
-    return _DEFAULT_LOCALE
+    return default_locale

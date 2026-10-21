@@ -105,7 +105,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
-    locale = _locale_code(update)
+    locale = _locale_code(update, context)
     if await _is_access_denied(
         update, context, repository, settings, locale
     ):
@@ -129,7 +129,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
-    locale = _locale_code(update)
+    locale = _locale_code(update, context)
     if await _is_access_denied(
         update, context, repository, settings, locale
     ):
@@ -150,7 +150,7 @@ async def help_command(
         return
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
-    locale = _locale_code(update)
+    locale = _locale_code(update, context)
     if await _is_access_denied(
         update, context, repository, settings, locale
     ):
@@ -166,7 +166,7 @@ async def list_reminders(
 ) -> None:
     if update.effective_user is None or update.effective_chat is None:
         return
-    locale = _locale_code(update)
+    locale = _locale_code(update, context)
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
     if await _is_access_denied(
@@ -210,7 +210,7 @@ async def set_timezone(
 ) -> None:
     if update.effective_user is None or update.effective_chat is None:
         return
-    locale = _locale_code(update)
+    locale = _locale_code(update, context)
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
     if await _is_access_denied(
@@ -258,7 +258,7 @@ async def on_text_message(
     message_text = (update.effective_message.text or "").strip()
     if not message_text:
         return
-    locale = _locale_code(update)
+    locale = _locale_code(update, context)
 
     repository, parser, scheduler, settings = _runtime_services(context)
     if await _is_access_denied(
@@ -433,11 +433,15 @@ def _reminder_matches(needle: str, reminder: Reminder) -> bool:
     return any(needle in text.casefold() for text in haystacks)
 
 
-def _locale_code(update: Update) -> str:
+def _locale_code(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> str:
+    settings: Settings = context.application.bot_data["settings"]
     language_code = None
     if update.effective_user and update.effective_user.language_code:
         language_code = update.effective_user.language_code
-    return detect_locale(language_code)
+    return detect_locale(language_code, settings.default_locale)
 
 
 def _t(locale: str, key: str, **kwargs: str) -> str:

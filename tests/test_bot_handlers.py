@@ -197,6 +197,7 @@ def _settings(allow_new_users: bool = True) -> Settings:
         model_name="gpt-4.1-nano",
         database_path="d.sqlite3",
         default_timezone="UTC",
+        default_locale="en",
         allow_new_users=allow_new_users,
     )
 

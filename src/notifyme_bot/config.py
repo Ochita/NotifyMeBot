@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from notifyme_bot.i18n import supported_locales
+
 AITUNNEL_BASE_URL = "https://api.aitunnel.ru/v1"
 DEFAULT_MODEL_NAME = "gpt-4.1-nano"
 
@@ -18,6 +20,7 @@ class Settings:
     model_name: str
     database_path: str
     default_timezone: str
+    default_locale: str
     allow_new_users: bool
 
 
@@ -46,6 +49,7 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
         raise ValueError(
             "allow_new_users must be true or false in YAML config."
         )
+    default_locale = _default_locale(data)
     return Settings(
         telegram_bot_token=token,
         base_url=base_url,
@@ -53,6 +57,7 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
         model_name=model_name,
         database_path=str(data.get("database_path", "notifyme.sqlite3")),
         default_timezone=str(data.get("default_timezone", "UTC")),
+        default_locale=default_locale,
         allow_new_users=allow_new_users,
     )
 
@@ -68,6 +73,15 @@ def _optional_str(data: dict, key: str) -> str | None:
         return None
     text = str(raw).strip()
     return text or None
+
+
+def _default_locale(data: dict) -> str:
+    raw = data.get("default_locale", "en")
+    locale = str(raw).strip().lower().split("-", maxsplit=1)[0]
+    if locale not in supported_locales():
+        known = ", ".join(sorted(supported_locales()))
+        raise ValueError(f"default_locale must be one of: {known}.")
+    return locale
 
 
 def _model_name(data: dict) -> str:
