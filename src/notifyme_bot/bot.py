@@ -13,11 +13,13 @@ from telegram.ext import (
     filters,
 )
 
-from notifyme_bot.config import Settings
+from notifyme_bot.config import AITUNNEL_BASE_URL, Settings
 from notifyme_bot.db import ReminderRepository
 from notifyme_bot.i18n import detect_locale, translate
 from notifyme_bot.llm.errors import LLMServiceError
-from notifyme_bot.llm.factory import llm_provider_from_settings
+from notifyme_bot.llm.openai_compatible import (
+    OpenAICompatibleStructuredChatProvider,
+)
 from notifyme_bot.llm_parser import (
     LLMReminderParser,
 )
@@ -58,8 +60,13 @@ def build_application(settings: Settings) -> Application:
     )
 
     repository = ReminderRepository(settings.database_path)
+    base = (settings.base_url or AITUNNEL_BASE_URL).strip().rstrip("/")
     parser = LLMReminderParser(
-        provider=llm_provider_from_settings(settings),
+        provider=OpenAICompatibleStructuredChatProvider(
+            api_key=settings.api_key,
+            model=settings.model_name,
+            base_url=base,
+        ),
         default_timezone=settings.default_timezone,
     )
     application.bot_data["settings"] = settings
@@ -251,7 +258,7 @@ async def on_text_message(
     message_text = (update.effective_message.text or "").strip()
     if not message_text:
         return
-    locale = _locale_code(update, message_text)
+    locale = _locale_code(update)
 
     repository, parser, scheduler, settings = _runtime_services(context)
     if await _is_access_denied(
@@ -426,14 +433,11 @@ def _reminder_matches(needle: str, reminder: Reminder) -> bool:
     return any(needle in text.casefold() for text in haystacks)
 
 
-def _locale_code(
-    update: Update,
-    message_text: str = "",
-) -> str:
+def _locale_code(update: Update) -> str:
     language_code = None
     if update.effective_user and update.effective_user.language_code:
         language_code = update.effective_user.language_code
-    return detect_locale(language_code, message_text)
+    return detect_locale(language_code)
 
 
 def _t(locale: str, key: str, **kwargs: str) -> str:

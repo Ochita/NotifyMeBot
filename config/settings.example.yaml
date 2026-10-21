@@ -1,14 +1,10 @@
 telegram_bot_token: "your-telegram-bot-token"
-api_key: "your-llm-api-key"
+# Mirror if this host is blocked: https://ru-api.aitunnel.ru/v1
+base_url: "https://api.aitunnel.ru/v1"
+api_key: "sk-aitunnel-your-key"
 
-# Model id for the configured llm_provider (e.g. Gemini or OpenAI model name).
-model_name: "gemini-3.1-flash-lite-preview"
-
-# LLM backend: gemini (default) or openai_compatible (OpenAI API, OpenRouter, local servers).
-# llm_provider: gemini
-# For openai_compatible, set model_name to the remote model id and optionally override the API base.
-# llm_provider: openai_compatible
-# llm_base_url: "https://openrouter.ai/api/v1"
+# gpt-4.1-nano: strict JSON schema, no reasoning-token tax.
+model_name: "gpt-4.1-nano"
 
 # App behavior
 default_timezone: "UTC"

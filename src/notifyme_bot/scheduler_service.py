@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import logging
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -88,22 +89,16 @@ class ReminderScheduler:
         now_local = now_utc.astimezone(tz)
         base_local = reminder.remind_at_utc.astimezone(tz)
 
-        if reminder.recurrence_unit == "minute":
-            candidate_local = base_local + timedelta(minutes=interval)
+        step_name = {
+            "minute": "minutes",
+            "hour": "hours",
+            "day": "days",
+        }.get(reminder.recurrence_unit or "")
+        if step_name is not None:
+            step = timedelta(**{step_name: interval})
+            candidate_local = base_local + step
             while candidate_local <= now_local:
-                candidate_local += timedelta(minutes=interval)
-            return candidate_local.astimezone(UTC)
-
-        if reminder.recurrence_unit == "hour":
-            candidate_local = base_local + timedelta(hours=interval)
-            while candidate_local <= now_local:
-                candidate_local += timedelta(hours=interval)
-            return candidate_local.astimezone(UTC)
-
-        if reminder.recurrence_unit == "day":
-            candidate_local = base_local + timedelta(days=interval)
-            while candidate_local <= now_local:
-                candidate_local += timedelta(days=interval)
+                candidate_local += step
             return candidate_local.astimezone(UTC)
 
         if reminder.recurrence_unit == "week":
@@ -128,7 +123,7 @@ class ReminderScheduler:
             year = now_local.year
             month = now_local.month
             for _ in range(36):
-                last_day = ReminderScheduler._last_day_of_month(year, month)
+                last_day = calendar.monthrange(year, month)[1]
                 day = min(target_day, last_day)
                 candidate_local = base_local.replace(
                     year=year,
@@ -144,12 +139,3 @@ class ReminderScheduler:
 
         # Fallback for unexpected recurrence configuration.
         return (base_local + timedelta(days=1)).astimezone(UTC)
-
-    @staticmethod
-    def _last_day_of_month(year: int, month: int) -> int:
-        if month == 2:
-            leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
-            return 29 if leap else 28
-        if month in {4, 6, 9, 11}:
-            return 30
-        return 31

@@ -64,3 +64,22 @@ async def test_chat_json_posts_expected_payload(
     assert captured["headers"]["Authorization"] == "Bearer sk"
     assert captured["json"]["model"] == "gpt-4o-mini"
     assert captured["json"]["response_format"]["type"] == "json_schema"
+    assert captured["json"]["provider"] == {
+        "sort": "price",
+        "require_parameters": True,
+    }
+
+
+def test_rejects_empty_model_and_base_url() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        OpenAICompatibleStructuredChatProvider(
+            api_key="k",
+            model="  ",
+            base_url="https://api.aitunnel.ru/v1",
+        )
+    with pytest.raises(ValueError, match="base_url"):
+        OpenAICompatibleStructuredChatProvider(
+            api_key="k",
+            model="gpt-4.1-nano",
+            base_url="  ",
+        )

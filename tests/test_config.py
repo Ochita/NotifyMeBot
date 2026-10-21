@@ -14,7 +14,7 @@ def test_load_settings_from_yaml(tmp_path: Path) -> None:
             [
                 'telegram_bot_token: "tg-token"',
                 'api_key: "gm-key"',
-                'model_name: "gemini-2.5-flash"',
+                'model_name: "gpt-4.1-nano"',
                 'database_path: "db.sqlite3"',
                 'default_timezone: "Europe/Kyiv"',
             ]
@@ -26,12 +26,11 @@ def test_load_settings_from_yaml(tmp_path: Path) -> None:
 
     assert settings.telegram_bot_token == "tg-token"
     assert settings.api_key == "gm-key"
-    assert settings.model_name == "gemini-2.5-flash"
+    assert settings.model_name == "gpt-4.1-nano"
     assert settings.database_path == "db.sqlite3"
     assert settings.default_timezone == "Europe/Kyiv"
     assert settings.allow_new_users is True
-    assert settings.llm_provider == "gemini"
-    assert settings.llm_base_url is None
+    assert settings.base_url is None
 
 
 def test_load_settings_allow_new_users_false(tmp_path: Path) -> None:
@@ -41,7 +40,7 @@ def test_load_settings_allow_new_users_false(tmp_path: Path) -> None:
             [
                 'telegram_bot_token: "tg-token"',
                 'api_key: "gm-key"',
-                'model_name: "gemini-2.5-flash"',
+                'model_name: "gpt-4.1-nano"',
                 "allow_new_users: false",
             ]
         ),
@@ -58,7 +57,7 @@ def test_load_settings_allow_new_users_non_bool(tmp_path: Path) -> None:
             [
                 'telegram_bot_token: "tg-token"',
                 'api_key: "gm-key"',
-                'model_name: "gemini-2.5-flash"',
+                'model_name: "gpt-4.1-nano"',
                 'allow_new_users: "no"',
             ]
         ),
@@ -97,7 +96,7 @@ def test_load_settings_rejects_model_name_as_list(tmp_path: Path) -> None:
                 'telegram_bot_token: "tg-token"',
                 'api_key: "gm-key"',
                 "model_name:",
-                '  - "gemini-2.5-flash"',
+                '  - "gpt-4.1-nano"',
             ]
         ),
         encoding="utf-8",
@@ -107,40 +106,33 @@ def test_load_settings_rejects_model_name_as_list(tmp_path: Path) -> None:
         load_settings(str(config_file))
 
 
-def test_load_settings_openai_compatible_and_base_url(tmp_path: Path) -> None:
+def test_load_settings_base_url_override(tmp_path: Path) -> None:
     config_file = tmp_path / "settings.yaml"
     config_file.write_text(
         "\n".join(
             [
                 'telegram_bot_token: "tg-token"',
+                'base_url: "https://ru-api.aitunnel.ru/v1"',
                 'api_key: "sk-test"',
-                'model_name: "gpt-4o-mini"',
-                "llm_provider: openai_compatible",
-                'llm_base_url: "https://openrouter.ai/api/v1"',
+                'model_name: "gpt-4.1-nano"',
             ]
         ),
         encoding="utf-8",
     )
     settings = load_settings(str(config_file))
-    assert settings.llm_provider == "openai_compatible"
-    assert settings.llm_base_url == "https://openrouter.ai/api/v1"
+    assert settings.model_name == "gpt-4.1-nano"
+    assert settings.base_url == "https://ru-api.aitunnel.ru/v1"
 
 
-def test_load_settings_rejects_bad_llm_provider(tmp_path: Path) -> None:
+def test_load_settings_defaults_model_name(tmp_path: Path) -> None:
     config_file = tmp_path / "settings.yaml"
     config_file.write_text(
-        "\n".join(
-            [
-                'telegram_bot_token: "tg-token"',
-                'api_key: "gm-key"',
-                'model_name: "gemini-2.5-flash"',
-                "llm_provider: unknown",
-            ]
-        ),
+        'telegram_bot_token: "tg-token"\napi_key: "sk-test"\n',
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="llm_provider must be"):
-        load_settings(str(config_file))
+    settings = load_settings(str(config_file))
+    assert settings.model_name == "gpt-4.1-nano"
+    assert settings.base_url is None
 
 
 def test_load_settings_rejects_empty_model_name(tmp_path: Path) -> None:

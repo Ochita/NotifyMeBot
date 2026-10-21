@@ -5,7 +5,6 @@ import json
 import httpx
 
 from notifyme_bot.llm.errors import LLMServiceError
-from notifyme_bot.llm.json_utils import loads_json_object
 
 
 class OpenAICompatibleStructuredChatProvider:
@@ -32,7 +31,7 @@ class OpenAICompatibleStructuredChatProvider:
         user_prompt: str,
         response_schema: dict,
     ) -> dict:
-        url = f"{self._base_url.rstrip('/')}/chat/completions"
+        url = f"{self._base_url}/chat/completions"
         payload = {
             "model": self._model_name,
             "messages": [
@@ -48,8 +47,12 @@ class OpenAICompatibleStructuredChatProvider:
                     "schema": response_schema,
                 },
             },
+            # Cheapest upstream that accepts response_format.
+            "provider": {
+                "sort": "price",
+                "require_parameters": True,
+            },
         }
-        last_error: Exception | None = None
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 response = await client.post(
@@ -63,32 +66,19 @@ class OpenAICompatibleStructuredChatProvider:
                 response.raise_for_status()
                 body = response.json()
                 raw = body["choices"][0]["message"]["content"]
-                if isinstance(raw, list):
-                    text = "".join(
-                        part.get("text", "")
-                        for part in raw
-                        if isinstance(part, dict)
-                        and part.get("type") == "text"
-                    )
-                else:
-                    text = str(raw)
-                return loads_json_object(text)
+                return json.loads(str(raw))
             except httpx.HTTPStatusError as exc:
-                error_body = (
-                    exc.response.text[:400] if exc.response else ""
-                )
+                error_body = exc.response.text[:400] if exc.response else ""
                 status = (
-                    exc.response.status_code
-                    if exc.response
-                    else "unknown"
+                    exc.response.status_code if exc.response else "unknown"
                 )
-                last_error = LLMServiceError(
+                raise LLMServiceError(
                     "OpenAI-compatible request failed "
                     f"(status={status}, "
                     f"model={self._model_name}, "
                     f"base_url={self._base_url}, "
                     f"body={error_body})"
-                )
+                ) from exc
             except (
                 httpx.HTTPError,
                 json.JSONDecodeError,
@@ -97,9 +87,8 @@ class OpenAICompatibleStructuredChatProvider:
                 TypeError,
                 ValueError,
             ) as exc:
-                last_error = exc
-
-        raise LLMServiceError(
-            "OpenAI-compatible request failed "
-            f"(model={self._model_name}, base_url={self._base_url})"
-        ) from last_error
+                raise LLMServiceError(
+                    "OpenAI-compatible request failed "
+                    f"(model={self._model_name}, "
+                    f"base_url={self._base_url})"
+                ) from exc

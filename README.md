@@ -1,6 +1,8 @@
 # NotifyMeBot
 
-Telegram reminder bot with a pluggable LLM and SQLite.
+Telegram reminder bot. Reminders are parsed by an OpenAI-compatible
+chat model on [AITunnel](https://aitunnel.ru) (`gpt-4.1-nano` by default)
+and stored in SQLite.
 
 ## What it does
 
@@ -80,9 +82,10 @@ cp config/settings.docker.example.yaml config/settings.yaml
 
 Edit `config/settings.yaml` and set:
 - `telegram_bot_token`
-- `api_key` (LLM API key)
-- `model_name` (provider-specific model id)
-- optionally `default_timezone`, `llm_provider`, and `llm_base_url`
+- `base_url` (default `https://api.aitunnel.ru/v1`)
+- `api_key` (AITunnel key, `sk-aitunnel-…`)
+- `model_name` (default `gpt-4.1-nano`)
+- optionally `default_timezone`
 
 2. Build image:
 

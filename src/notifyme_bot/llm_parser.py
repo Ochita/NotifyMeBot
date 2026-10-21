@@ -3,32 +3,26 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from notifyme_bot.llm.errors import LLMServiceError
-from notifyme_bot.llm.json_utils import extract_json_object, loads_json_object
-from notifyme_bot.llm.protocol import StructuredChatProvider
+from notifyme_bot.llm.openai_compatible import (
+    OpenAICompatibleStructuredChatProvider,
+)
 from notifyme_bot.models import (
     CommandParseResult,
     ParsedDeleteRequest,
     ParsedReminder,
 )
 
-# Backward-compatible name for callers and tests.
-GeminiServiceError = LLMServiceError
-
 
 class LLMReminderParser:
-    """Reminder/delete parsing via ``StructuredChatProvider``."""
+    """Reminder/delete parsing via one chat completion."""
 
     def __init__(
         self,
-        provider: StructuredChatProvider,
+        provider: OpenAICompatibleStructuredChatProvider,
         default_timezone: str,
     ) -> None:
         self._provider = provider
         self._default_timezone = default_timezone
-
-    _loads_json_object = staticmethod(loads_json_object)
-    _extract_json_object = staticmethod(extract_json_object)
 
     async def parse_command(
         self,
@@ -56,26 +50,6 @@ class LLMReminderParser:
         if reminder is not None:
             return CommandParseResult(delete=None, reminder=reminder)
         return CommandParseResult(delete=None, reminder=None)
-
-    async def parse_reminder(
-        self,
-        message_text: str,
-        now_utc: datetime,
-        user_timezone: str | None = None,
-    ) -> ParsedReminder | None:
-        result = await self.parse_command(
-            message_text, now_utc, user_timezone
-        )
-        return result.reminder
-
-    async def parse_delete_request(
-        self,
-        message_text: str,
-    ) -> ParsedDeleteRequest | None:
-        result = await self.parse_command(
-            message_text, datetime.now(UTC), None
-        )
-        return result.delete
 
     def _build_parsed_reminder_from_data(
         self,

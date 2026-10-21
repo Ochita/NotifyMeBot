@@ -1,8 +1,7 @@
 telegram_bot_token: "your-telegram-bot-token"
-api_key: "your-llm-api-key"
-model_name: "gemini-2.5-flash"
-# llm_provider: gemini
-# llm_base_url: "https://api.openai.com/v1"
+base_url: "https://api.aitunnel.ru/v1"
+api_key: "sk-aitunnel-your-key"
+model_name: "gpt-4.1-nano"
 
 default_timezone: "UTC"
 database_path: "/app/data/notifyme.sqlite3"

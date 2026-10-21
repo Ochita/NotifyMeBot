@@ -5,19 +5,20 @@ from pathlib import Path
 
 import yaml
 
+AITUNNEL_BASE_URL = "https://api.aitunnel.ru/v1"
+DEFAULT_MODEL_NAME = "gpt-4.1-nano"
+
 
 @dataclass(frozen=True, slots=True)
 class Settings:
     telegram_bot_token: str
+    #: Override for ``AITUNNEL_BASE_URL`` (mirror or tests).
+    base_url: str | None
     api_key: str
     model_name: str
     database_path: str
     default_timezone: str
     allow_new_users: bool
-    #: ``gemini`` or ``openai_compatible`` (OpenAI-compatible HTTP APIs).
-    llm_provider: str
-    #: API base for ``openai_compatible`` only (e.g. OpenRouter).
-    llm_base_url: str | None
 
 
 def load_settings(config_path: str = "config/settings.yaml") -> Settings:
@@ -32,6 +33,7 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
         data = yaml.safe_load(config_file) or {}
 
     token = _required(data, "telegram_bot_token")
+    base_url = _optional_str(data, "base_url")
     api_key = _required(data, "api_key")
     if not token:
         raise ValueError("Missing telegram_bot_token in YAML config.")
@@ -44,17 +46,14 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
         raise ValueError(
             "allow_new_users must be true or false in YAML config."
         )
-    llm_provider = _llm_provider(data)
-    llm_base_url = _optional_str(data, "llm_base_url")
     return Settings(
         telegram_bot_token=token,
+        base_url=base_url,
         api_key=api_key,
         model_name=model_name,
         database_path=str(data.get("database_path", "notifyme.sqlite3")),
         default_timezone=str(data.get("default_timezone", "UTC")),
         allow_new_users=allow_new_users,
-        llm_provider=llm_provider,
-        llm_base_url=llm_base_url,
     )
 
 
@@ -71,20 +70,10 @@ def _optional_str(data: dict, key: str) -> str | None:
     return text or None
 
 
-def _llm_provider(data: dict) -> str:
-    raw = data.get("llm_provider", "gemini")
-    name = str(raw).strip().lower()
-    if name in {"gemini", "openai_compatible"}:
-        return name
-    raise ValueError(
-        "llm_provider must be 'gemini' or 'openai_compatible' in YAML config."
-    )
-
-
 def _model_name(data: dict) -> str:
     raw = data.get("model_name")
     if raw is None:
-        raw = "gemini-2.5-flash"
+        raw = DEFAULT_MODEL_NAME
     if isinstance(raw, list):
         raise ValueError("model_name must be a single string, not a list.")
     model = str(raw).strip()

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "notifyme-bot"
 version = "0.1.0"
-description = "Telegram reminder bot with SQLite and pluggable LLM backends."
+description = "Telegram reminder bot with SQLite and an AITunnel chat model."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

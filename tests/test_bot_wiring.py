@@ -18,20 +18,19 @@ from notifyme_bot.bot import (
     set_timezone,
     start,
 )
-from notifyme_bot.config import Settings
+from notifyme_bot.config import AITUNNEL_BASE_URL, Settings
 from notifyme_bot.models import Reminder
 
 
 def _settings(db_path: Path) -> Settings:
     return Settings(
         telegram_bot_token="123456:ABCDEF",
+        base_url=None,
         api_key="k",
-        model_name="gemini-2.5-flash",
+        model_name="gpt-4.1-nano",
         database_path=str(db_path),
         default_timezone="UTC",
         allow_new_users=True,
-        llm_provider="gemini",
-        llm_base_url=None,
     )
 
 
@@ -41,6 +40,7 @@ def test_build_application_registers_services(tmp_path: Path) -> None:
     assert "settings" in app.bot_data
     assert "repository" in app.bot_data
     assert "parser" in app.bot_data
+    assert app.bot_data["parser"]._provider._base_url == AITUNNEL_BASE_URL
 
 
 @pytest.mark.asyncio

@@ -27,40 +27,9 @@ def translate(locale: str, key: str, **kwargs: str) -> str:
     return template.format(**kwargs)
 
 
-def detect_locale(
-    user_language_code: str | None,
-    message_text: str = "",
-) -> str:
+def detect_locale(user_language_code: str | None) -> str:
     if user_language_code:
         base = user_language_code.lower().split("-", maxsplit=1)[0]
         if base in _MESSAGES:
             return base
-
-    lowered = message_text.lower()
-    if any(char in lowered for char in ("ї", "є", "і", "ґ")):
-        return "uk"
-    has_cyrillic = any(
-        "а" <= char <= "я" or "А" <= char <= "Я" for char in message_text
-    )
-    if has_cyrillic:
-        return "ru"
-    if any(
-        word in lowered
-        for word in ("ricord", "promemoria", "per favore", "domani", "oggi")
-    ):
-        return "it"
-    if any(
-        word in lowered
-        for word in ("rappelle", "rappel", "demain", "aujourd", "s'il te")
-    ):
-        return "fr"
-    if any(
-        word in lowered for word in ("erinner", "morgen", "heute", "bitte")
-    ):
-        return "de"
-    if any(
-        word in lowered
-        for word in ("recu", "recorda", "mañana", "hoy", "por favor")
-    ):
-        return "es"
     return _DEFAULT_LOCALE

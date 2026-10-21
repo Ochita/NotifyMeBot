@@ -192,13 +192,12 @@ class _Update:
 def _settings(allow_new_users: bool = True) -> Settings:
     return Settings(
         telegram_bot_token="x",
+        base_url=None,
         api_key="y",
-        model_name="gemini-2.5-flash",
+        model_name="gpt-4.1-nano",
         database_path="d.sqlite3",
         default_timezone="UTC",
         allow_new_users=allow_new_users,
-        llm_provider="gemini",
-        llm_base_url=None,
     )
 
 
@@ -324,7 +323,9 @@ async def test_on_text_message_llm_error_localized() -> None:
     )
     context = _Context(application=app, bot=bot)
     update_ru = _Update(
-        _User(1), _Chat(100), _Message("Напомни мне позвонить завтра")
+        _User(1, language_code="ru"),
+        _Chat(100),
+        _Message("Напомни мне позвонить завтра"),
     )
     await on_text_message(update_ru, context)
     assert "Ошибка сервиса" in bot.messages[-1]["text"]

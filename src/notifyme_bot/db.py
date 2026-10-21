@@ -26,7 +26,9 @@ class ReminderRepository:
                 );
                 """
             )
-            await self._ensure_user_timezone_column(conn)
+            await self._ensure_columns(
+                conn, "users", {"timezone": "timezone TEXT"}
+            )
             await conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS reminders (
@@ -47,9 +49,22 @@ class ReminderRepository:
                 );
                 """
             )
-            await self._ensure_notification_column(conn)
-            await self._ensure_recurrence_columns(conn)
-            await self._ensure_reminder_timezone_column(conn)
+            await self._ensure_columns(
+                conn,
+                "reminders",
+                {
+                    "notification_text": (
+                        "notification_text TEXT NOT NULL DEFAULT ''"
+                    ),
+                    "is_recurring": (
+                        "is_recurring INTEGER NOT NULL DEFAULT 0"
+                    ),
+                    "recurrence_unit": "recurrence_unit TEXT",
+                    "recurrence_interval": "recurrence_interval INTEGER",
+                    "recurrence_weekdays": "recurrence_weekdays TEXT",
+                    "timezone": "timezone TEXT NOT NULL DEFAULT 'UTC'",
+                },
+            )
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_reminders_due "
                 "ON reminders(remind_at_utc);"
@@ -294,59 +309,17 @@ class ReminderRepository:
         return parsed.astimezone(UTC)
 
     @staticmethod
-    async def _ensure_notification_column(conn: aiosqlite.Connection) -> None:
-        async with conn.execute("PRAGMA table_info(reminders);") as cursor:
-            columns = await cursor.fetchall()
-        column_names = {str(row[1]) for row in columns}
-        if "notification_text" not in column_names:
-            await conn.execute(
-                "ALTER TABLE reminders "
-                "ADD COLUMN notification_text TEXT NOT NULL DEFAULT '';"
-            )
-
-    @staticmethod
-    async def _ensure_recurrence_columns(conn: aiosqlite.Connection) -> None:
-        async with conn.execute("PRAGMA table_info(reminders);") as cursor:
-            columns = await cursor.fetchall()
-        column_names = {str(row[1]) for row in columns}
-        if "is_recurring" not in column_names:
-            await conn.execute(
-                "ALTER TABLE reminders "
-                "ADD COLUMN is_recurring INTEGER NOT NULL DEFAULT 0;"
-            )
-        if "recurrence_unit" not in column_names:
-            await conn.execute(
-                "ALTER TABLE reminders ADD COLUMN recurrence_unit TEXT;"
-            )
-        if "recurrence_interval" not in column_names:
-            await conn.execute(
-                "ALTER TABLE reminders ADD COLUMN recurrence_interval INTEGER;"
-            )
-        if "recurrence_weekdays" not in column_names:
-            await conn.execute(
-                "ALTER TABLE reminders ADD COLUMN recurrence_weekdays TEXT;"
-            )
-
-    @staticmethod
-    async def _ensure_reminder_timezone_column(
+    async def _ensure_columns(
         conn: aiosqlite.Connection,
+        table: str,
+        columns: dict[str, str],
     ) -> None:
-        async with conn.execute("PRAGMA table_info(reminders);") as cursor:
-            columns = await cursor.fetchall()
-        column_names = {str(row[1]) for row in columns}
-        if "timezone" not in column_names:
-            await conn.execute(
-                "ALTER TABLE reminders "
-                "ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC';"
-            )
-
-    @staticmethod
-    async def _ensure_user_timezone_column(conn: aiosqlite.Connection) -> None:
-        async with conn.execute("PRAGMA table_info(users);") as cursor:
-            columns = await cursor.fetchall()
-        column_names = {str(row[1]) for row in columns}
-        if "timezone" not in column_names:
-            await conn.execute("ALTER TABLE users ADD COLUMN timezone TEXT;")
+        async with conn.execute(f"PRAGMA table_info({table});") as cursor:
+            rows = await cursor.fetchall()
+        have = {str(row[1]) for row in rows}
+        for name, ddl in columns.items():
+            if name not in have:
+                await conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl};")
 
     @staticmethod
     def _parse_weekdays(raw: object) -> list[int] | None:
