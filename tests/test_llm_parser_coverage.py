@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
+from chat_payloads import chat_completion_response
 from http_fakes import JsonHttpResponse
+from test_llm_parser import FRIDAY, _command
 
 from notifyme_bot.llm import (
     LLMServiceError,
@@ -23,116 +23,105 @@ def _provider(model: str = "m") -> OpenAICompatibleStructuredChatProvider:
     )
 
 
-@pytest.mark.asyncio
-async def test_parse_reminder_returns_none_when_missing_texts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    payload = {
-        "choices": [
-            {
-                "message": {
-                    "content": json.dumps(
-                        {
-                            "should_schedule": True,
-                            "reminder_text": "",
-                            "notification_text": "x",
-                            "remind_at_utc": "",
-                            "is_recurring": False,
-                            "recurrence_unit": "none",
-                            "recurrence_interval": 0,
-                            "recurrence_weekdays": [],
-                        }
-                    )
-                }
-            }
-        ]
-    }
+def _parser() -> LLMReminderParser:
+    return LLMReminderParser(provider=_provider(), default_timezone="UTC")
 
+
+def _patch(monkeypatch: pytest.MonkeyPatch, content: dict) -> None:
     async def fake_post(self, url: str, json: dict, headers: dict):
-        return JsonHttpResponse(payload)
+        _ = (url, json, headers)
+        return JsonHttpResponse(chat_completion_response(content))
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser(
-        provider=_provider(),
-        default_timezone="UTC",
-    )
-    out = (await parser.parse_command("x", datetime.now(UTC))).reminder
-    assert out is None
+
+
+@pytest.mark.asyncio
+async def test_parse_reminder_returns_none_when_missing_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch(monkeypatch, _command(reminder_text="", weekday=5))
+    assert (await _parser().parse_command("x", FRIDAY)).reminder is None
 
 
 @pytest.mark.asyncio
 async def test_parse_reminder_returns_none_when_no_schedulable_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Non-recurring with invalid remind_at and no fallback -> None."""
-    payload = {
-        "choices": [
-            {
-                "message": {
-                    "content": json.dumps(
-                        {
-                            "should_schedule": True,
-                            "reminder_text": "a",
-                            "notification_text": "b",
-                            "remind_at_utc": "not-a-date",
-                            "is_recurring": False,
-                            "recurrence_unit": "none",
-                            "recurrence_interval": 0,
-                            "recurrence_weekdays": [],
-                        }
-                    )
-                }
-            }
-        ]
-    }
+    """Schedule intent with only a broken clock time has no anchor."""
+    _patch(monkeypatch, _command(local_date="not-a-date", local_time="bad"))
+    assert (await _parser().parse_command("x", FRIDAY)).reminder is None
 
-    async def fake_post(self, url: str, json: dict, headers: dict):
-        return JsonHttpResponse(payload)
 
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser(
-        provider=_provider(),
-        default_timezone="UTC",
+@pytest.mark.asyncio
+async def test_recurring_without_unit_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch(
+        monkeypatch,
+        _command(
+            is_recurring=True,
+            recurrence_unit="none",
+            recurrence_interval=1,
+            weekday=5,
+        ),
     )
-    out = (await parser.parse_command("x", datetime.now(UTC))).reminder
-    assert out is None
+    assert (await _parser().parse_command("x", FRIDAY)).reminder is None
 
 
-def test_parse_remind_at_naive_is_user_local() -> None:
-    dt = LLMReminderParser._parse_remind_at_to_utc(
-        "2025-01-15T12:00:00",
-        "Europe/Moscow",
+@pytest.mark.asyncio
+async def test_recurring_defaults_interval_to_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch(
+        monkeypatch,
+        _command(
+            is_recurring=True,
+            recurrence_unit="week",
+            recurrence_interval=0,
+            recurrence_weekdays=[2, 5],
+        ),
     )
-    noon_moscow = datetime(
-        2025,
-        1,
-        15,
-        12,
-        0,
-        0,
-        tzinfo=ZoneInfo("Europe/Moscow"),
-    )
-    assert dt == noon_moscow.astimezone(UTC)
+    parsed = (await _parser().parse_command("x", FRIDAY)).reminder
+
+    assert parsed is not None
+    assert parsed.recurrence_interval == 1
+    assert parsed.recurrence_weekdays == [2, 5]
 
 
-def test_parse_remind_at_explicit_z_is_utc() -> None:
-    dt = LLMReminderParser._parse_remind_at_to_utc(
-        "2025-01-15T12:00:00Z",
-        "Europe/Moscow",
-    )
-    assert dt == datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC)
-
-
-def test_first_fire_from_llm_rejects_invalid_and_past() -> None:
-    now = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
+def test_resolve_rejects_unknown_weekday_only_input() -> None:
+    parser = _parser()
     assert (
-        LLMReminderParser._first_fire_from_llm(
-            "not-a-date", "UTC", now
+        parser._build_parsed_reminder_from_data(
+            _command(weekday=9), FRIDAY, "UTC"
         )
         is None
     )
-    past = "2025-06-15T11:00:00Z"
-    assert LLMReminderParser._first_fire_from_llm(past, "UTC", now) is None
+
+
+def test_resolve_monthly_first_fire() -> None:
+    parser = _parser()
+    parsed = parser._build_parsed_reminder_from_data(
+        _command(
+            is_recurring=True,
+            recurrence_unit="month",
+            recurrence_interval=1,
+            local_date="2026-11-03",
+            local_time="09:00",
+        ),
+        FRIDAY,
+        "UTC",
+    )
+
+    assert parsed is not None
+    assert parsed.recurrence_unit == "month"
+    assert parsed.remind_at_utc == datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
+
+
+def test_next_weekday_fire_raises_on_empty_weekdays() -> None:
+    with pytest.raises(ValueError, match="weekdays"):
+        LLMReminderParser._next_weekday_fire(
+            [11], datetime.min.time(), FRIDAY, UTC
+        )
 
 
 @pytest.mark.asyncio
@@ -143,6 +132,7 @@ async def test_chat_completion_http_status_error(
     resp = httpx.Response(401, request=req, text="unauthorized")
 
     async def fake_post(self, url: str, json: dict, headers: dict):
+        _ = (url, json, headers)
         raise httpx.HTTPStatusError(
             "Unauthorized",
             request=req,
@@ -155,7 +145,7 @@ async def test_chat_completion_http_status_error(
         default_timezone="UTC",
     )
     with pytest.raises(LLMServiceError, match="model=test-model") as exc:
-        await parser.parse_command("hi", datetime.now(UTC))
+        await parser.parse_command("hi", FRIDAY)
     assert exc.value.__cause__ is not None
     assert "401" in str(exc.value)
 
@@ -165,89 +155,34 @@ async def test_chat_completion_bad_body_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_post(self, url: str, json: dict, headers: dict):
+        _ = (url, json, headers)
         return JsonHttpResponse({})
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser(
-        provider=_provider(),
-        default_timezone="UTC",
-    )
     with pytest.raises(LLMServiceError):
-        await parser.parse_command("hi", datetime.now(UTC))
+        await _parser().parse_command("hi", FRIDAY)
 
 
 @pytest.mark.asyncio
-async def test_parse_delete_request_delete_all_from_llm_flag(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """delete_all follows model JSON only (no phrase heuristics)."""
-    payload = {
-        "choices": [
-            {
-                "message": {
-                    "content": json.dumps(
-                        {
-                            "should_delete": True,
-                            "delete_all": True,
-                            "delete_ids": [1],
-                        }
-                    )
-                }
-            }
-        ]
-    }
-
-    async def fake_post(self, url: str, json: dict, headers: dict):
-        return JsonHttpResponse(payload)
-
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser(
-        provider=_provider(),
-        default_timezone="UTC",
-    )
-    req = (
-        await parser.parse_command(
-            "please delete all reminders", datetime.now(UTC)
-        )
-    ).delete
-    assert req is not None
-    assert req.delete_all is True
-    assert req.delete_ids == []
-
-
-@pytest.mark.asyncio
-async def test_parse_delete_request_delete_all_not_inferred_from_message(
+async def test_delete_all_not_inferred_from_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Model delete_all=false wins over user wording like 'delete all'."""
-    payload = {
-        "choices": [
-            {
-                "message": {
-                    "content": json.dumps(
-                        {
-                            "should_delete": True,
-                            "delete_all": False,
-                            "delete_ids": [],
-                        }
-                    )
-                }
-            }
-        ]
-    }
-
-    async def fake_post(self, url: str, json: dict, headers: dict):
-        return JsonHttpResponse(payload)
-
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = LLMReminderParser(
-        provider=_provider(),
-        default_timezone="UTC",
+    _patch(
+        monkeypatch,
+        _command(
+            action="delete",
+            should_schedule=False,
+            should_delete=True,
+            delete_all=False,
+            delete_ids=[],
+        ),
     )
     req = (
-        await parser.parse_command(
-            "please delete all reminders", datetime.now(UTC)
+        await _parser().parse_command(
+            "please delete all reminders", FRIDAY
         )
     ).delete
+
     assert req is not None
     assert req.delete_all is False

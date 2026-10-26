@@ -122,6 +122,9 @@ class ReminderScheduler:
             target_day = base_local.day
             year = now_local.year
             month = now_local.month
+            # Next run must be strictly after both "now" and the fire being
+            # delivered, otherwise a month-matching candidate repeats itself.
+            lower_bound = max(now_local, base_local)
             for _ in range(36):
                 last_day = calendar.monthrange(year, month)[1]
                 day = min(target_day, last_day)
@@ -130,7 +133,7 @@ class ReminderScheduler:
                     month=month,
                     day=day,
                 )
-                if candidate_local > now_local:
+                if candidate_local > lower_bound:
                     return candidate_local.astimezone(UTC)
                 month += interval
                 year += (month - 1) // 12
