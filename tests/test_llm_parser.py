@@ -516,8 +516,10 @@ def test_parser_helpers() -> None:
     assert LLMReminderParser._normalize_action(" store ") == "store"
     assert LLMReminderParser._normalize_action("DELETE") == "delete"
     assert LLMReminderParser._normalize_action("nope") == "none"
-    assert LLMReminderParser._weekday_or_none(7) is None
-    assert LLMReminderParser._weekday_or_none("3") == 3
+    assert LLMReminderParser._weekday_anchor(7) == (True, None)
+    assert LLMReminderParser._weekday_anchor("3") == (True, 3)
+    assert LLMReminderParser._weekday_anchor(-1) == (False, None)
+    assert LLMReminderParser._weekday_anchor("") == (False, None)
     assert LLMReminderParser._parse_local_time("25:00") is None
     assert LLMReminderParser._parse_local_time("9:00") is not None
     assert LLMReminderParser._parse_local_date("31.12.2026") is None

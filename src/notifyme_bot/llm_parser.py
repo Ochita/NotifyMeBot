@@ -59,10 +59,9 @@ class LLMReminderParser:
             data, now_utc, timezone_name
         )
         if delete is not None:
-            return CommandParseResult(delete=delete, reminder=None)
-        if reminder is not None:
-            return CommandParseResult(delete=None, reminder=reminder)
-        return CommandParseResult(delete=None, reminder=None)
+            # A message that asks for both is treated as a delete request.
+            reminder = None
+        return CommandParseResult(delete=delete, reminder=reminder)
 
     def _build_parsed_reminder_from_data(
         self,
@@ -310,14 +309,6 @@ class LLMReminderParser:
             return None
 
     @staticmethod
-    def _weekday_or_none(value: object) -> int | None:
-        try:
-            weekday = int(value)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            return None
-        return weekday if 0 <= weekday <= 6 else None
-
-    @staticmethod
     def _positive_int_or_none(value: object) -> int | None:
         try:
             int_value = int(value)  # type: ignore[arg-type]
@@ -355,50 +346,32 @@ class LLMReminderParser:
 
     @staticmethod
     def _command_schema() -> dict:
+        properties = {
+            "action": {"type": "string"},
+            "should_schedule": {"type": "boolean"},
+            "should_delete": {"type": "boolean"},
+            "delete_all": {"type": "boolean"},
+            "delete_ids": {"type": "array", "items": {"type": "integer"}},
+            "reminder_text": {"type": "string"},
+            "notification_text": {"type": "string"},
+            "local_date": {"type": "string"},
+            "local_time": {"type": "string"},
+            "weekday": {"type": "integer"},
+            "relative_day": {"type": "string"},
+            "delay_minutes": {"type": "integer"},
+            "is_recurring": {"type": "boolean"},
+            "recurrence_unit": {"type": "string"},
+            "recurrence_interval": {"type": "integer"},
+            "recurrence_weekdays": {
+                "type": "array",
+                "items": {"type": "integer"},
+            },
+        }
+        # Strict schema: every declared key must be present in the answer.
         return {
             "type": "object",
-            "properties": {
-                "action": {"type": "string"},
-                "should_schedule": {"type": "boolean"},
-                "should_delete": {"type": "boolean"},
-                "delete_all": {"type": "boolean"},
-                "delete_ids": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                },
-                "reminder_text": {"type": "string"},
-                "notification_text": {"type": "string"},
-                "local_date": {"type": "string"},
-                "local_time": {"type": "string"},
-                "weekday": {"type": "integer"},
-                "relative_day": {"type": "string"},
-                "delay_minutes": {"type": "integer"},
-                "is_recurring": {"type": "boolean"},
-                "recurrence_unit": {"type": "string"},
-                "recurrence_interval": {"type": "integer"},
-                "recurrence_weekdays": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                },
-            },
-            "required": [
-                "action",
-                "should_schedule",
-                "should_delete",
-                "delete_all",
-                "delete_ids",
-                "reminder_text",
-                "notification_text",
-                "local_date",
-                "local_time",
-                "weekday",
-                "relative_day",
-                "delay_minutes",
-                "is_recurring",
-                "recurrence_unit",
-                "recurrence_interval",
-                "recurrence_weekdays",
-            ],
+            "properties": properties,
+            "required": list(properties),
             "additionalProperties": False,
         }
 
@@ -409,13 +382,12 @@ class LLMReminderParser:
         timezone_name: str,
         reminders: list[Reminder],
     ) -> dict:
-        system_prompt = self._command_prompt(
-            local_now=local_now,
-            timezone_name=timezone_name,
-            reminders=reminders,
-        )
         data = await self._provider.chat_json(
-            system_prompt=system_prompt,
+            system_prompt=self._command_prompt(
+                local_now=local_now,
+                timezone_name=timezone_name,
+                reminders=reminders,
+            ),
             user_prompt=message_text,
             response_schema=self._command_schema(),
         )
