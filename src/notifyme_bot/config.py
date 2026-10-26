@@ -87,10 +87,8 @@ def _default_locale(data: dict) -> str:
 def _model_name(data: dict) -> str:
     raw = data.get("model_name")
     if raw is None:
-        raw = DEFAULT_MODEL_NAME
-    if isinstance(raw, list):
-        raise ValueError("model_name must be a single string, not a list.")
-    model = str(raw).strip()
-    if not model:
-        raise ValueError("Missing model_name in YAML config.")
-    return model
+        return DEFAULT_MODEL_NAME
+    # A mistyped or empty model_name must fail loudly, not fall back silently.
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("model_name must be a single non-empty string.")
+    return raw.strip()

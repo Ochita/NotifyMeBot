@@ -102,7 +102,7 @@ def test_load_settings_rejects_model_name_as_list(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="single string"):
+    with pytest.raises(ValueError, match="single non-empty string"):
         load_settings(str(config_file))
 
 
@@ -177,5 +177,5 @@ def test_load_settings_rejects_empty_model_name(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="Missing model_name"):
+    with pytest.raises(ValueError, match="single non-empty string"):
         load_settings(str(config_file))
