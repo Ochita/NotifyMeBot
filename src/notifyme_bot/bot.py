@@ -107,9 +107,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
     locale = await _locale_code(update, context)
-    if await _is_access_denied(
-        update, context, repository, settings, locale
-    ):
+    if await _is_access_denied(update, context, repository, settings, locale):
         return
     await repository.upsert_user(
         user_id=update.effective_user.id,
@@ -131,9 +129,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
     locale = await _locale_code(update, context)
-    if await _is_access_denied(
-        update, context, repository, settings, locale
-    ):
+    if await _is_access_denied(update, context, repository, settings, locale):
         return
     await repository.set_subscription(
         update.effective_user.id, is_subscribed=False
@@ -152,9 +148,7 @@ async def help_command(
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
     locale = await _locale_code(update, context)
-    if await _is_access_denied(
-        update, context, repository, settings, locale
-    ):
+    if await _is_access_denied(update, context, repository, settings, locale):
         return
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -170,14 +164,12 @@ async def list_reminders(
     locale = await _locale_code(update, context)
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
-    if await _is_access_denied(
-        update, context, repository, settings, locale
-    ):
+    if await _is_access_denied(update, context, repository, settings, locale):
         return
     timezone_name = await _effective_timezone_name(
         repository=repository,
         user_id=update.effective_user.id,
-        fallback=context.application.bot_data["settings"].default_timezone,
+        fallback=settings.default_timezone,
     )
     timezone = ZoneInfo(timezone_name)
     reminders = await repository.list_pending_for_user(
@@ -214,9 +206,7 @@ async def set_timezone(
     locale = await _locale_code(update, context)
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
-    if await _is_access_denied(
-        update, context, repository, settings, locale
-    ):
+    if await _is_access_denied(update, context, repository, settings, locale):
         return
 
     if not context.args:
@@ -256,9 +246,7 @@ async def set_locale(
     locale = await _locale_code(update, context)
     repository: ReminderRepository = context.application.bot_data["repository"]
     settings: Settings = context.application.bot_data["settings"]
-    if await _is_access_denied(
-        update, context, repository, settings, locale
-    ):
+    if await _is_access_denied(update, context, repository, settings, locale):
         return
     if not context.args:
         await context.bot.send_message(
@@ -299,9 +287,7 @@ async def on_text_message(
     locale = await _locale_code(update, context)
 
     repository, parser, scheduler, settings = _runtime_services(context)
-    if await _is_access_denied(
-        update, context, repository, settings, locale
-    ):
+    if await _is_access_denied(update, context, repository, settings, locale):
         return
     if not await repository.is_subscribed(update.effective_user.id):
         await context.bot.send_message(
@@ -364,7 +350,7 @@ async def on_text_message(
         scheduler=scheduler,
         locale=locale,
         timezone_name=timezone_name,
-        message_text=message_text,
+        source_text=message_text,
         parsed=parsed,
     )
 
@@ -387,13 +373,13 @@ async def _save_and_schedule_reminder(
     scheduler: ReminderScheduler,
     locale: str,
     timezone_name: str,
-    message_text: str,
+    source_text: str,
     parsed: ParsedReminder,
 ) -> None:
     reminder = await repository.create_reminder(
         user_id=update.effective_user.id,
         chat_id=update.effective_chat.id,
-        source_text=message_text,
+        source_text=source_text,
         reminder_text=parsed.reminder_text,
         notification_text=parsed.notification_text,
         remind_at_utc=parsed.remind_at_utc,

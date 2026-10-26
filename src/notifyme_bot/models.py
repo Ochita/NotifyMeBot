@@ -9,7 +9,6 @@ class Reminder:
     id: int
     user_id: int
     chat_id: int
-    source_text: str
     reminder_text: str
     notification_text: str
     remind_at_utc: datetime
@@ -18,7 +17,6 @@ class Reminder:
     recurrence_unit: str | None
     recurrence_interval: int | None
     recurrence_weekdays: list[int] | None
-    created_at_utc: datetime
 
 
 @dataclass(slots=True)

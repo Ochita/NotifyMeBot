@@ -5,17 +5,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+from conftest import FakeBot, make_reminder
 
-from notifyme_bot.models import Reminder
 from notifyme_bot.scheduler_service import ReminderScheduler
-
-
-class _FakeBot:
-    def __init__(self) -> None:
-        self.messages: list[dict] = []
-
-    async def send_message(self, chat_id: int, text: str) -> None:
-        self.messages.append({"chat_id": chat_id, "text": text})
 
 
 class _RepoNoReminder:
@@ -31,7 +23,7 @@ class _RepoNoReminder:
 
 @pytest.mark.asyncio
 async def test_deliver_purge_when_reminder_missing() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     scheduler = ReminderScheduler(repository=_RepoNoReminder(), bot=bot)
     await scheduler._deliver_and_purge(999)
     assert bot.messages == []
@@ -59,7 +51,7 @@ async def test_deliver_uses_reminder_text_when_notification_blank(
         recurrence_interval=None,
         recurrence_weekdays=None,
     )
-    bot = _FakeBot()
+    bot = FakeBot()
     scheduler = ReminderScheduler(repository=repo, bot=bot)
     await scheduler._deliver_and_purge(reminder.id)
     assert bot.messages[0]["text"] == "body only"
@@ -71,7 +63,7 @@ async def test_scheduler_start_idempotent(tmp_path: Path) -> None:
 
     repo = ReminderRepository(str(tmp_path / "db.sqlite3"))
     await repo.init()
-    scheduler = ReminderScheduler(repository=repo, bot=_FakeBot())
+    scheduler = ReminderScheduler(repository=repo, bot=FakeBot())
     await scheduler.start()
     await scheduler.start()
     await scheduler.shutdown()
@@ -81,27 +73,18 @@ async def test_scheduler_start_idempotent(tmp_path: Path) -> None:
 async def test_scheduler_shutdown_when_not_running() -> None:
     scheduler = ReminderScheduler(
         repository=AsyncMock(),
-        bot=_FakeBot(),
+        bot=FakeBot(),
     )
     await scheduler.shutdown()
 
 
 def test_next_recurring_run_fallback_unknown_unit() -> None:
     base = datetime.now(UTC) + timedelta(minutes=1)
-    r = Reminder(
-        id=1,
-        user_id=1,
-        chat_id=1,
-        source_text="s",
-        reminder_text="t",
-        notification_text="n",
+    r = make_reminder(
         remind_at_utc=base,
-        timezone="UTC",
         is_recurring=True,
-        recurrence_unit="not-a-known-unit",  # type: ignore[arg-type]
+        recurrence_unit="not-a-known-unit",
         recurrence_interval=1,
-        recurrence_weekdays=None,
-        created_at_utc=base,
     )
     nxt = ReminderScheduler._next_recurring_run(r)
     assert nxt > base

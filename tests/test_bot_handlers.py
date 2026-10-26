@@ -1,9 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import (
+    FakeApp,
+    FakeBot,
+    FakeChat,
+    FakeContext,
+    FakeMessage,
+    FakeUpdate,
+    FakeUser,
+    make_reminder,
+    make_settings,
+)
 
 from notifyme_bot.bot import (
     _list_recurrence_suffix,
@@ -15,7 +25,6 @@ from notifyme_bot.bot import (
     start,
     stop,
 )
-from notifyme_bot.config import Settings
 from notifyme_bot.llm import LLMServiceError
 from notifyme_bot.models import (
     CommandParseResult,
@@ -23,30 +32,6 @@ from notifyme_bot.models import (
     ParsedReminder,
     Reminder,
 )
-
-
-@dataclass
-class _User:
-    id: int
-    language_code: str | None = None
-
-
-@dataclass
-class _Chat:
-    id: int
-
-
-@dataclass
-class _Message:
-    text: str
-
-
-class _FakeBot:
-    def __init__(self) -> None:
-        self.messages: list[dict] = []
-
-    async def send_message(self, **kwargs: int | str) -> None:
-        self.messages.append(kwargs)
 
 
 class _FakeRepo:
@@ -105,21 +90,18 @@ class _FakeRepo:
         recurrence_interval: int | None,
         recurrence_weekdays: list[int] | None,
     ) -> Reminder:
-        _ = timezone
-        reminder = Reminder(
+        _ = (timezone, source_text)
+        reminder = make_reminder(
             id=len(self.created) + 1,
             user_id=user_id,
             chat_id=chat_id,
-            source_text=source_text,
             reminder_text=reminder_text,
             notification_text=notification_text,
             remind_at_utc=remind_at_utc,
-            timezone="UTC",
             is_recurring=is_recurring,
             recurrence_unit=recurrence_unit,
             recurrence_interval=recurrence_interval,
             recurrence_weekdays=recurrence_weekdays,
-            created_at_utc=datetime.now(UTC),
         )
         self.created.append(reminder)
         return reminder
@@ -163,9 +145,7 @@ class _FakeParser:
         self.last_timezone = user_timezone
         self._maybe_raise()
         if self.delete_result is not None:
-            return CommandParseResult(
-                delete=self.delete_result, reminder=None
-            )
+            return CommandParseResult(delete=self.delete_result, reminder=None)
         return CommandParseResult(delete=None, reminder=self._result)
 
 
@@ -177,49 +157,16 @@ class _FakeScheduler:
         self.scheduled.append(reminder)
 
 
-@dataclass
-class _App:
-    bot_data: dict
-    bot: _FakeBot
-
-
-@dataclass
-class _Context:
-    application: _App
-    bot: _FakeBot
-    args: list[str] | None = None
-
-
-@dataclass
-class _Update:
-    effective_user: _User | None
-    effective_chat: _Chat | None
-    effective_message: _Message | None
-
-
-def _settings(allow_new_users: bool = True) -> Settings:
-    return Settings(
-        telegram_bot_token="x",
-        base_url=None,
-        api_key="y",
-        model_name="gpt-4.1-nano",
-        database_path="d.sqlite3",
-        default_timezone="UTC",
-        default_locale="en",
-        allow_new_users=allow_new_users,
-    )
-
-
 @pytest.mark.asyncio
 async def test_start_stop_help_and_list() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
-    app = _App(
-        bot_data={"repository": repo, "settings": _settings()},
+    app = FakeApp(
+        bot_data={"repository": repo, "settings": make_settings()},
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update = _Update(_User(1), _Chat(100), _Message("hello"))
+    context = FakeContext(application=app, bot=bot)
+    update = FakeUpdate(FakeUser(1), FakeChat(100), FakeMessage("hello"))
 
     await start(update, context)
     assert repo.subscribed[1] is True
@@ -233,20 +180,10 @@ async def test_start_stop_help_and_list() -> None:
     assert "No pending reminders." in bot.messages[-1]["text"]
 
     repo.pending = [
-        Reminder(
+        make_reminder(
             id=1,
-            user_id=1,
-            chat_id=100,
-            source_text="s",
             reminder_text="send money",
             notification_text="Notification: send money",
-            remind_at_utc=datetime.now(UTC) + timedelta(days=1),
-            timezone="UTC",
-            is_recurring=False,
-            recurrence_unit=None,
-            recurrence_interval=None,
-            recurrence_weekdays=None,
-            created_at_utc=datetime.now(UTC),
         )
     ]
     await list_reminders(update, context)
@@ -259,21 +196,21 @@ async def test_start_stop_help_and_list() -> None:
 
 @pytest.mark.asyncio
 async def test_on_text_message_unsubscribed() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
     parser = _FakeParser(None)
     scheduler = _FakeScheduler()
-    app = _App(
+    app = FakeApp(
         bot_data={
             "repository": repo,
             "parser": parser,
             "scheduler": scheduler,
-            "settings": _settings(),
+            "settings": make_settings(),
         },
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update = _Update(_User(1), _Chat(100), _Message("remind me"))
+    context = FakeContext(application=app, bot=bot)
+    update = FakeUpdate(FakeUser(1), FakeChat(100), FakeMessage("remind me"))
 
     await on_text_message(update, context)
     assert "unsubscribed" in bot.messages[-1]["text"]
@@ -282,59 +219,59 @@ async def test_on_text_message_unsubscribed() -> None:
 
 @pytest.mark.asyncio
 async def test_on_text_message_parse_none_and_error() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
     repo.subscribed[1] = True
     scheduler = _FakeScheduler()
 
-    app_none = _App(
+    app_none = FakeApp(
         bot_data={
             "repository": repo,
             "parser": _FakeParser(None),
             "scheduler": scheduler,
-            "settings": _settings(),
+            "settings": make_settings(),
         },
         bot=bot,
     )
-    context_none = _Context(application=app_none, bot=bot)
-    update = _Update(_User(1), _Chat(100), _Message("hello"))
+    context_none = FakeContext(application=app_none, bot=bot)
+    update = FakeUpdate(FakeUser(1), FakeChat(100), FakeMessage("hello"))
     await on_text_message(update, context_none)
     assert "did not detect" in bot.messages[-1]["text"]
 
-    app_err = _App(
+    app_err = FakeApp(
         bot_data={
             "repository": repo,
             "parser": _FakeParser(None, should_raise=True),
             "scheduler": scheduler,
-            "settings": _settings(),
+            "settings": make_settings(),
         },
         bot=bot,
     )
-    context_err = _Context(application=app_err, bot=bot)
+    context_err = FakeContext(application=app_err, bot=bot)
     await on_text_message(update, context_err)
     assert "could not parse" in bot.messages[-1]["text"]
 
 
 @pytest.mark.asyncio
 async def test_on_text_message_llm_error_localized() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
     repo.subscribed[1] = True
     scheduler = _FakeScheduler()
-    app = _App(
+    app = FakeApp(
         bot_data={
             "repository": repo,
             "parser": _FakeParser(None, service_error=True),
             "scheduler": scheduler,
-            "settings": _settings(),
+            "settings": make_settings(),
         },
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update_ru = _Update(
-        _User(1, language_code="ru"),
-        _Chat(100),
-        _Message("Напомни мне позвонить завтра"),
+    context = FakeContext(application=app, bot=bot)
+    update_ru = FakeUpdate(
+        FakeUser(1, language_code="ru"),
+        FakeChat(100),
+        FakeMessage("Напомни мне позвонить завтра"),
     )
     await on_text_message(update_ru, context)
     assert "Ошибка сервиса" in bot.messages[-1]["text"]
@@ -350,14 +287,16 @@ def test_i18n_translation_llm_error_non_english() -> None:
 
 @pytest.mark.asyncio
 async def test_start_localized_by_user_language() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
-    app = _App(
-        bot_data={"repository": repo, "settings": _settings()},
+    app = FakeApp(
+        bot_data={"repository": repo, "settings": make_settings()},
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update = _Update(_User(2, language_code="ru"), _Chat(101), _Message("hi"))
+    context = FakeContext(application=app, bot=bot)
+    update = FakeUpdate(
+        FakeUser(2, language_code="ru"), FakeChat(101), FakeMessage("hi")
+    )
 
     await start(update, context)
 
@@ -366,14 +305,16 @@ async def test_start_localized_by_user_language() -> None:
 
 @pytest.mark.asyncio
 async def test_start_localized_ukrainian_language_code() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
-    app = _App(
-        bot_data={"repository": repo, "settings": _settings()},
+    app = FakeApp(
+        bot_data={"repository": repo, "settings": make_settings()},
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update = _Update(_User(3, language_code="uk"), _Chat(102), _Message("hi"))
+    context = FakeContext(application=app, bot=bot)
+    update = FakeUpdate(
+        FakeUser(3, language_code="uk"), FakeChat(102), FakeMessage("hi")
+    )
 
     await start(update, context)
 
@@ -382,7 +323,7 @@ async def test_start_localized_ukrainian_language_code() -> None:
 
 @pytest.mark.asyncio
 async def test_on_text_message_success_schedules() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
     repo.subscribed[1] = True
     repo.timezones[1] = "Europe/Rome"
@@ -397,17 +338,17 @@ async def test_on_text_message_success_schedules() -> None:
         recurrence_weekdays=None,
     )
     parser = _FakeParser(parsed)
-    app = _App(
+    app = FakeApp(
         bot_data={
             "repository": repo,
             "parser": parser,
             "scheduler": scheduler,
-            "settings": _settings(),
+            "settings": make_settings(),
         },
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update = _Update(_User(1), _Chat(100), _Message("remind me"))
+    context = FakeContext(application=app, bot=bot)
+    update = FakeUpdate(FakeUser(1), FakeChat(100), FakeMessage("remind me"))
 
     await on_text_message(update, context)
 
@@ -419,39 +360,19 @@ async def test_on_text_message_success_schedules() -> None:
 
 @pytest.mark.asyncio
 async def test_on_text_message_delete_by_text() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
     repo.subscribed[1] = True
     repo.pending = [
-        Reminder(
+        make_reminder(
             id=10,
-            user_id=1,
-            chat_id=100,
-            source_text="remind me to pay Alexei",
             reminder_text="pay Alexei",
             notification_text="Reminder: pay Alexei.",
-            remind_at_utc=datetime.now(UTC) + timedelta(days=1),
-            timezone="UTC",
-            is_recurring=False,
-            recurrence_unit=None,
-            recurrence_interval=None,
-            recurrence_weekdays=None,
-            created_at_utc=datetime.now(UTC),
         ),
-        Reminder(
+        make_reminder(
             id=11,
-            user_id=1,
-            chat_id=100,
-            source_text="remind me to buy milk",
             reminder_text="buy milk",
             notification_text="Reminder: buy milk.",
-            remind_at_utc=datetime.now(UTC) + timedelta(days=1),
-            timezone="UTC",
-            is_recurring=False,
-            recurrence_unit=None,
-            recurrence_interval=None,
-            recurrence_weekdays=None,
-            created_at_utc=datetime.now(UTC),
         ),
     ]
     parser = _FakeParser(None)
@@ -460,17 +381,19 @@ async def test_on_text_message_delete_by_text() -> None:
         delete_ids=[10],
     )
     scheduler = _FakeScheduler()
-    app = _App(
+    app = FakeApp(
         bot_data={
             "repository": repo,
             "parser": parser,
             "scheduler": scheduler,
-            "settings": _settings(),
+            "settings": make_settings(),
         },
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update = _Update(_User(1), _Chat(100), _Message("cancel Alexei reminder"))
+    context = FakeContext(application=app, bot=bot)
+    update = FakeUpdate(
+        FakeUser(1), FakeChat(100), FakeMessage("cancel Alexei reminder")
+    )
 
     await on_text_message(update, context)
 
@@ -481,7 +404,7 @@ async def test_on_text_message_delete_by_text() -> None:
 
 @pytest.mark.asyncio
 async def test_on_text_message_delete_none() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
     repo.subscribed[1] = True
     parser = _FakeParser(None)
@@ -490,17 +413,19 @@ async def test_on_text_message_delete_none() -> None:
         delete_ids=[],
     )
     scheduler = _FakeScheduler()
-    app = _App(
+    app = FakeApp(
         bot_data={
             "repository": repo,
             "parser": parser,
             "scheduler": scheduler,
-            "settings": _settings(),
+            "settings": make_settings(),
         },
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update = _Update(_User(1), _Chat(100), _Message("delete all reminders"))
+    context = FakeContext(application=app, bot=bot)
+    update = FakeUpdate(
+        FakeUser(1), FakeChat(100), FakeMessage("delete all reminders")
+    )
 
     await on_text_message(update, context)
 
@@ -509,24 +434,14 @@ async def test_on_text_message_delete_none() -> None:
 
 @pytest.mark.asyncio
 async def test_on_text_message_delete_not_found() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
     repo.subscribed[1] = True
     repo.pending = [
-        Reminder(
+        make_reminder(
             id=12,
-            user_id=1,
-            chat_id=100,
-            source_text="remind me to buy milk",
             reminder_text="buy milk",
             notification_text="Reminder: buy milk.",
-            remind_at_utc=datetime.now(UTC) + timedelta(days=1),
-            timezone="UTC",
-            is_recurring=False,
-            recurrence_unit=None,
-            recurrence_interval=None,
-            recurrence_weekdays=None,
-            created_at_utc=datetime.now(UTC),
         )
     ]
     parser = _FakeParser(None)
@@ -535,17 +450,19 @@ async def test_on_text_message_delete_not_found() -> None:
         delete_ids=[99],
     )
     scheduler = _FakeScheduler()
-    app = _App(
+    app = FakeApp(
         bot_data={
             "repository": repo,
             "parser": parser,
             "scheduler": scheduler,
-            "settings": _settings(),
+            "settings": make_settings(),
         },
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update = _Update(_User(1), _Chat(100), _Message("delete Alexei reminder"))
+    context = FakeContext(application=app, bot=bot)
+    update = FakeUpdate(
+        FakeUser(1), FakeChat(100), FakeMessage("delete Alexei reminder")
+    )
 
     await on_text_message(update, context)
 
@@ -554,24 +471,24 @@ async def test_on_text_message_delete_not_found() -> None:
 
 @pytest.mark.asyncio
 async def test_set_timezone_success_and_invalid() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
     repo.subscribed[1] = True
-    app = _App(
-        bot_data={"repository": repo, "settings": _settings()},
+    app = FakeApp(
+        bot_data={"repository": repo, "settings": make_settings()},
         bot=bot,
     )
-    update = _Update(_User(1), _Chat(100), _Message(""))
+    update = FakeUpdate(FakeUser(1), FakeChat(100), FakeMessage(""))
 
-    context_missing = _Context(application=app, bot=bot, args=[])
+    context_missing = FakeContext(application=app, bot=bot, args=[])
     await set_timezone(update, context_missing)
     assert "Please provide timezone" in bot.messages[-1]["text"]
 
-    context_bad = _Context(application=app, bot=bot, args=["Bad/Timezone"])
+    context_bad = FakeContext(application=app, bot=bot, args=["Bad/Timezone"])
     await set_timezone(update, context_bad)
     assert "Unknown timezone" in bot.messages[-1]["text"]
 
-    context_ok = _Context(
+    context_ok = FakeContext(
         application=app,
         bot=bot,
         args=["Europe/Rome"],
@@ -583,17 +500,17 @@ async def test_set_timezone_success_and_invalid() -> None:
 
 @pytest.mark.asyncio
 async def test_closed_registration_blocks_new_user() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
-    app = _App(
+    app = FakeApp(
         bot_data={
             "repository": repo,
-            "settings": _settings(allow_new_users=False),
+            "settings": make_settings(allow_new_users=False),
         },
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update = _Update(_User(99), _Chat(100), _Message("hello"))
+    context = FakeContext(application=app, bot=bot)
+    update = FakeUpdate(FakeUser(99), FakeChat(100), FakeMessage("hello"))
 
     await start(update, context)
     assert repo.subscribed.get(99) is None
@@ -602,47 +519,27 @@ async def test_closed_registration_blocks_new_user() -> None:
 
 @pytest.mark.asyncio
 async def test_closed_registration_allows_whitelisted_user() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     repo = _FakeRepo()
     repo.known_users.add(1)
     repo.subscribed[1] = True
-    app = _App(
+    app = FakeApp(
         bot_data={
             "repository": repo,
-            "settings": _settings(allow_new_users=False),
+            "settings": make_settings(allow_new_users=False),
         },
         bot=bot,
     )
-    context = _Context(application=app, bot=bot)
-    update = _Update(_User(1), _Chat(100), _Message("hello"))
+    context = FakeContext(application=app, bot=bot)
+    update = FakeUpdate(FakeUser(1), FakeChat(100), FakeMessage("hello"))
 
     await start(update, context)
     assert repo.subscribed[1] is True
     assert "Subscription enabled" in bot.messages[-1]["text"]
 
 
-def _reminder_row(**overrides: object) -> Reminder:
-    base = {
-        "id": 1,
-        "user_id": 1,
-        "chat_id": 100,
-        "source_text": "s",
-        "reminder_text": "task",
-        "notification_text": "n",
-        "remind_at_utc": datetime.now(UTC) + timedelta(days=1),
-        "timezone": "UTC",
-        "is_recurring": True,
-        "recurrence_unit": "minute",
-        "recurrence_interval": 2,
-        "recurrence_weekdays": None,
-        "created_at_utc": datetime.now(UTC),
-    }
-    base.update(overrides)
-    return Reminder(**base)
-
-
 def test_list_recurrence_suffix_empty_for_one_shot() -> None:
-    r = _reminder_row(
+    r = make_reminder(
         is_recurring=False,
         recurrence_unit=None,
         recurrence_interval=None,
@@ -651,8 +548,14 @@ def test_list_recurrence_suffix_empty_for_one_shot() -> None:
 
 
 def test_list_recurrence_suffix_minute_and_weekly() -> None:
-    assert "every 2 min" in _list_recurrence_suffix("en", _reminder_row())
-    w = _reminder_row(
+    every_two = make_reminder(
+        is_recurring=True,
+        recurrence_unit="minute",
+        recurrence_interval=2,
+    )
+    assert "every 2 min" in _list_recurrence_suffix("en", every_two)
+    w = make_reminder(
+        is_recurring=True,
         recurrence_unit="week",
         recurrence_interval=1,
         recurrence_weekdays=[0, 2],

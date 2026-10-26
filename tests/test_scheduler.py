@@ -4,18 +4,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from conftest import FakeBot, make_reminder
 
 from notifyme_bot.db import ReminderRepository
-from notifyme_bot.models import Reminder
 from notifyme_bot.scheduler_service import ReminderScheduler
-
-
-class _FakeBot:
-    def __init__(self) -> None:
-        self.messages: list[dict] = []
-
-    async def send_message(self, chat_id: int, text: str) -> None:
-        self.messages.append({"chat_id": chat_id, "text": text})
 
 
 @pytest.mark.asyncio
@@ -37,7 +29,7 @@ async def test_scheduler_delivers_and_purges(tmp_path: Path) -> None:
         recurrence_interval=None,
         recurrence_weekdays=None,
     )
-    bot = _FakeBot()
+    bot = FakeBot()
     scheduler = ReminderScheduler(repository=repo, bot=bot)
 
     await scheduler._deliver_and_purge(reminder.id)
@@ -52,7 +44,7 @@ async def test_scheduler_delivers_and_purges(tmp_path: Path) -> None:
 async def test_schedule_ignores_past_reminder(tmp_path: Path) -> None:
     repo = ReminderRepository(str(tmp_path / "notifyme.sqlite3"))
     await repo.init()
-    bot = _FakeBot()
+    bot = FakeBot()
     scheduler = ReminderScheduler(repository=repo, bot=bot)
     scheduler._scheduler.start()
 
@@ -93,7 +85,7 @@ async def test_scheduler_recurring_reschedules(tmp_path: Path) -> None:
         recurrence_interval=2,
         recurrence_weekdays=None,
     )
-    bot = _FakeBot()
+    bot = FakeBot()
     scheduler = ReminderScheduler(repository=repo, bot=bot)
     scheduler._scheduler.start()
 
@@ -124,7 +116,7 @@ async def test_scheduler_start_loads_pending_jobs(tmp_path: Path) -> None:
         recurrence_interval=None,
         recurrence_weekdays=None,
     )
-    scheduler = ReminderScheduler(repository=repo, bot=_FakeBot())
+    scheduler = ReminderScheduler(repository=repo, bot=FakeBot())
 
     await scheduler.start()
 
@@ -134,35 +126,19 @@ async def test_scheduler_start_loads_pending_jobs(tmp_path: Path) -> None:
 
 def test_next_recurring_run_weekdays_and_fallback() -> None:
     base_dt = datetime.now(UTC) + timedelta(minutes=1)
-    weekly = Reminder(
-        id=1,
-        user_id=1,
-        chat_id=1,
-        source_text="every wednesday and saturday",
-        reminder_text="task",
-        notification_text="task",
+    weekly = make_reminder(
         remind_at_utc=base_dt,
         timezone="Europe/Rome",
         is_recurring=True,
         recurrence_unit="week",
         recurrence_interval=1,
         recurrence_weekdays=[2, 5],
-        created_at_utc=base_dt,
     )
-    fallback = Reminder(
-        id=2,
-        user_id=1,
-        chat_id=1,
-        source_text="broken recurrence",
-        reminder_text="task",
-        notification_text="task",
+    fallback = make_reminder(
         remind_at_utc=base_dt,
-        timezone="UTC",
         is_recurring=True,
         recurrence_unit="unknown",
         recurrence_interval=1,
-        recurrence_weekdays=None,
-        created_at_utc=base_dt,
     )
 
     weekly_next = ReminderScheduler._next_recurring_run(weekly)
@@ -175,28 +151,21 @@ def test_next_recurring_run_weekdays_and_fallback() -> None:
 
 def test_next_recurring_run_minutes() -> None:
     base_dt = datetime.now(UTC) + timedelta(seconds=20)
-    minute_reminder = Reminder(
-        id=3,
-        user_id=1,
-        chat_id=1,
-        source_text="every 2 minutes",
-        reminder_text="task",
-        notification_text="task",
+    minute_reminder = make_reminder(
         remind_at_utc=base_dt,
-        timezone="UTC",
         is_recurring=True,
         recurrence_unit="minute",
         recurrence_interval=2,
-        recurrence_weekdays=None,
-        created_at_utc=base_dt,
     )
 
     next_dt = ReminderScheduler._next_recurring_run(minute_reminder)
     delta = next_dt - base_dt
 
     assert next_dt > base_dt
-    assert timedelta(minutes=1, seconds=50) <= delta <= timedelta(
-        minutes=2, seconds=10
+    assert (
+        timedelta(minutes=1, seconds=50)
+        <= delta
+        <= timedelta(minutes=2, seconds=10)
     )
 
 
@@ -209,20 +178,11 @@ def test_next_recurring_run_monthly() -> None:
         month = ((month - 1) % 12) + 1
         base_dt = base_dt.replace(year=year, month=month)
 
-    month_reminder = Reminder(
-        id=4,
-        user_id=1,
-        chat_id=1,
-        source_text="every month on day 3",
-        reminder_text="pay rent",
-        notification_text="Reminder: pay rent.",
+    month_reminder = make_reminder(
         remind_at_utc=base_dt,
-        timezone="UTC",
         is_recurring=True,
         recurrence_unit="month",
         recurrence_interval=1,
-        recurrence_weekdays=None,
-        created_at_utc=base_dt,
     )
 
     next_dt = ReminderScheduler._next_recurring_run(month_reminder)

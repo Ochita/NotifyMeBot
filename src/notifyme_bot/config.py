@@ -35,9 +35,9 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
     with path.open("r", encoding="utf-8") as config_file:
         data = yaml.safe_load(config_file) or {}
 
-    token = _required(data, "telegram_bot_token")
-    base_url = _optional_str(data, "base_url")
-    api_key = _required(data, "api_key")
+    token = str(data.get("telegram_bot_token") or "").strip()
+    api_key = str(data.get("api_key") or "").strip()
+    base_url = str(data.get("base_url") or "").strip() or None
     if not token:
         raise ValueError("Missing telegram_bot_token in YAML config.")
     if not api_key:
@@ -60,19 +60,6 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
         default_locale=default_locale,
         allow_new_users=allow_new_users,
     )
-
-
-def _required(data: dict, key: str) -> str:
-    value = data.get(key, "")
-    return str(value).strip()
-
-
-def _optional_str(data: dict, key: str) -> str | None:
-    raw = data.get(key)
-    if raw is None:
-        return None
-    text = str(raw).strip()
-    return text or None
 
 
 def _default_locale(data: dict) -> str:

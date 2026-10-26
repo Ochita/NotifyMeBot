@@ -7,6 +7,12 @@ import aiosqlite
 
 from notifyme_bot.models import Reminder
 
+_COLUMNS = (
+    "id, user_id, chat_id, reminder_text, notification_text, remind_at_utc, "
+    "timezone, is_recurring, recurrence_unit, recurrence_interval, "
+    "recurrence_weekdays"
+)
+
 
 class ReminderRepository:
     def __init__(self, database_path: str) -> None:
@@ -49,7 +55,6 @@ class ReminderRepository:
                     recurrence_unit TEXT,
                     recurrence_interval INTEGER,
                     recurrence_weekdays TEXT,
-                    created_at_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(user_id) REFERENCES users(user_id)
                 );
                 """
@@ -58,6 +63,7 @@ class ReminderRepository:
                 conn,
                 "reminders",
                 {
+                    "source_text": "source_text TEXT NOT NULL DEFAULT ''",
                     "notification_text": (
                         "notification_text TEXT NOT NULL DEFAULT ''"
                     ),
@@ -118,16 +124,7 @@ class ReminderRepository:
             await conn.commit()
 
     async def get_user_timezone(self, user_id: int) -> str | None:
-        async with aiosqlite.connect(self._database_path) as conn:
-            async with conn.execute(
-                "SELECT timezone FROM users WHERE user_id = ?;",
-                (user_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-        if not row:
-            return None
-        value = row[0]
-        return str(value) if value else None
+        return await self._get_user_field(user_id, "timezone")
 
     async def set_user_locale(self, user_id: int, locale: str) -> None:
         async with aiosqlite.connect(self._database_path) as conn:
@@ -138,16 +135,7 @@ class ReminderRepository:
             await conn.commit()
 
     async def get_user_locale(self, user_id: int) -> str | None:
-        async with aiosqlite.connect(self._database_path) as conn:
-            async with conn.execute(
-                "SELECT locale FROM users WHERE user_id = ?;",
-                (user_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-        if not row:
-            return None
-        value = row[0]
-        return str(value) if value else None
+        return await self._get_user_field(user_id, "locale")
 
     async def is_subscribed(self, user_id: int) -> bool:
         async with aiosqlite.connect(self._database_path) as conn:
@@ -157,6 +145,15 @@ class ReminderRepository:
             ) as cursor:
                 row = await cursor.fetchone()
         return bool(row[0]) if row else False
+
+    async def _get_user_field(self, user_id: int, column: str) -> str | None:
+        async with aiosqlite.connect(self._database_path) as conn:
+            async with conn.execute(
+                f"SELECT {column} FROM users WHERE user_id = ?;",  # noqa: S608
+                (user_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return str(row[0]) if row and row[0] else None
 
     async def create_reminder(
         self,
@@ -174,9 +171,6 @@ class ReminderRepository:
     ) -> Reminder:
         remind_at = remind_at_utc.astimezone(UTC).isoformat()
         timezone_name = str(timezone).strip() or "UTC"
-        recurrence_weekdays_json = (
-            json.dumps(recurrence_weekdays) if recurrence_weekdays else None
-        )
         async with aiosqlite.connect(self._database_path) as conn:
             cursor = await conn.execute(
                 """
@@ -198,6 +192,7 @@ class ReminderRepository:
                 (
                     user_id,
                     chat_id,
+                    # Kept for debugging; never read back by the bot.
                     source_text,
                     reminder_text,
                     notification_text,
@@ -206,24 +201,18 @@ class ReminderRepository:
                     1 if is_recurring else 0,
                     recurrence_unit,
                     recurrence_interval,
-                    recurrence_weekdays_json,
+                    json.dumps(recurrence_weekdays)
+                    if recurrence_weekdays
+                    else None,
                 ),
             )
             await conn.commit()
             reminder_id = cursor.lastrowid
 
-            async with conn.execute(
-                "SELECT created_at_utc FROM reminders WHERE id = ?;",
-                (reminder_id,),
-            ) as created_cursor:
-                created_row = await created_cursor.fetchone()
-
-        created_at = self._parse_utc(str(created_row[0]))
         return Reminder(
             id=int(reminder_id),
             user_id=user_id,
             chat_id=chat_id,
-            source_text=source_text,
             reminder_text=reminder_text,
             notification_text=notification_text,
             remind_at_utc=self._parse_utc(remind_at),
@@ -232,62 +221,35 @@ class ReminderRepository:
             recurrence_unit=recurrence_unit,
             recurrence_interval=recurrence_interval,
             recurrence_weekdays=recurrence_weekdays,
-            created_at_utc=created_at,
         )
 
     async def get_reminder(self, reminder_id: int) -> Reminder | None:
         async with aiosqlite.connect(self._database_path) as conn:
             async with conn.execute(
-                """
-                SELECT
-                    id, user_id, chat_id, source_text, reminder_text,
-                    notification_text,
-                    remind_at_utc, timezone, is_recurring, recurrence_unit,
-                    recurrence_interval, recurrence_weekdays, created_at_utc
-                FROM reminders
-                WHERE id = ?;
-                """,
+                f"SELECT {_COLUMNS} FROM reminders WHERE id = ?;",
                 (reminder_id,),
             ) as cursor:
                 row = await cursor.fetchone()
         return self._to_reminder(row) if row else None
 
-    async def list_pending(self) -> list[Reminder]:
+    async def list_pending(self, user_id: int | None = None) -> list[Reminder]:
+        """Due reminders, for one user when ``user_id`` is given."""
+        where = "julianday(remind_at_utc) >= julianday('now')"
+        params: tuple[int, ...] = ()
+        if user_id is not None:
+            where = f"user_id = ? AND {where}"
+            params = (user_id,)
         async with aiosqlite.connect(self._database_path) as conn:
             async with conn.execute(
-                """
-                SELECT
-                    id, user_id, chat_id, source_text, reminder_text,
-                    notification_text,
-                    remind_at_utc, timezone, is_recurring, recurrence_unit,
-                    recurrence_interval, recurrence_weekdays, created_at_utc
-                FROM reminders
-                WHERE julianday(remind_at_utc) >= julianday('now')
-                ORDER BY remind_at_utc ASC;
-                """
+                f"SELECT {_COLUMNS} FROM reminders WHERE {where} "
+                "ORDER BY remind_at_utc ASC;",
+                params,
             ) as cursor:
                 rows = await cursor.fetchall()
         return [self._to_reminder(row) for row in rows]
 
     async def list_pending_for_user(self, user_id: int) -> list[Reminder]:
-        async with aiosqlite.connect(self._database_path) as conn:
-            async with conn.execute(
-                """
-                SELECT
-                    id, user_id, chat_id, source_text, reminder_text,
-                    notification_text,
-                    remind_at_utc, timezone, is_recurring, recurrence_unit,
-                    recurrence_interval, recurrence_weekdays, created_at_utc
-                FROM reminders
-                WHERE
-                    user_id = ?
-                    AND julianday(remind_at_utc) >= julianday('now')
-                ORDER BY remind_at_utc ASC;
-                """,
-                (user_id,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return [self._to_reminder(row) for row in rows]
+        return await self.list_pending(user_id)
 
     async def delete_reminder(self, reminder_id: int) -> None:
         async with aiosqlite.connect(self._database_path) as conn:
@@ -314,16 +276,14 @@ class ReminderRepository:
             id=int(row[0]),
             user_id=int(row[1]),
             chat_id=int(row[2]),
-            source_text=str(row[3]),
-            reminder_text=str(row[4]),
-            notification_text=str(row[5]),
-            remind_at_utc=ReminderRepository._parse_utc(str(row[6])),
-            timezone=str(row[7]) if row[7] else "UTC",
-            is_recurring=bool(row[8]),
-            recurrence_unit=str(row[9]) if row[9] else None,
-            recurrence_interval=int(row[10]) if row[10] is not None else None,
-            recurrence_weekdays=ReminderRepository._parse_weekdays(row[11]),
-            created_at_utc=ReminderRepository._parse_utc(str(row[12])),
+            reminder_text=str(row[3]),
+            notification_text=str(row[4]),
+            remind_at_utc=ReminderRepository._parse_utc(str(row[5])),
+            timezone=str(row[6]) if row[6] else "UTC",
+            is_recurring=bool(row[7]),
+            recurrence_unit=str(row[8]) if row[8] else None,
+            recurrence_interval=int(row[9]) if row[9] is not None else None,
+            recurrence_weekdays=ReminderRepository._parse_weekdays(row[10]),
         )
 
     @staticmethod
@@ -350,11 +310,8 @@ class ReminderRepository:
     def _parse_weekdays(raw: object) -> list[int] | None:
         if raw is None:
             return None
-        text = str(raw).strip()
-        if not text:
-            return None
         try:
-            parsed = json.loads(text)
+            parsed = json.loads(str(raw))
         except json.JSONDecodeError:
             return None
         if not isinstance(parsed, list):
