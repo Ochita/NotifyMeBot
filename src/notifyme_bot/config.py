@@ -9,6 +9,7 @@ from notifyme_bot.i18n import supported_locales
 
 AITUNNEL_BASE_URL = "https://api.aitunnel.ru/v1"
 DEFAULT_MODEL_NAME = "gpt-4.1-nano"
+DEFAULT_STT_MODEL = "voxtral-small-24b-2507-stt"
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +19,7 @@ class Settings:
     base_url: str | None
     api_key: str
     model_name: str
+    stt_model: str
     database_path: str
     default_timezone: str
     default_locale: str
@@ -43,7 +45,8 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
     if not api_key:
         raise ValueError("Missing api_key in YAML config.")
 
-    model_name = _model_name(data)
+    model_name = _model_name(data, "model_name", DEFAULT_MODEL_NAME)
+    stt_model = _model_name(data, "stt_model", DEFAULT_STT_MODEL)
     allow_new_users = data.get("allow_new_users", True)
     if not isinstance(allow_new_users, bool):
         raise ValueError(
@@ -55,6 +58,7 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
         base_url=base_url,
         api_key=api_key,
         model_name=model_name,
+        stt_model=stt_model,
         database_path=str(data.get("database_path", "notifyme.sqlite3")),
         default_timezone=str(data.get("default_timezone", "UTC")),
         default_locale=default_locale,
@@ -71,11 +75,11 @@ def _default_locale(data: dict) -> str:
     return locale
 
 
-def _model_name(data: dict) -> str:
-    raw = data.get("model_name")
+def _model_name(data: dict, key: str, default: str) -> str:
+    raw = data.get(key)
     if raw is None:
-        return DEFAULT_MODEL_NAME
-    # A mistyped or empty model_name must fail loudly, not fall back silently.
+        return default
+    # A mistyped or empty model id must fail loudly, not fall back silently.
     if not isinstance(raw, str) or not raw.strip():
-        raise ValueError("model_name must be a single non-empty string.")
+        raise ValueError(f"{key} must be a single non-empty string.")
     return raw.strip()

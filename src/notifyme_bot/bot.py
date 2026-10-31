@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from io import BytesIO
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from telegram import Update
@@ -16,10 +17,7 @@ from telegram.ext import (
 from notifyme_bot.config import AITUNNEL_BASE_URL, Settings
 from notifyme_bot.db import ReminderRepository
 from notifyme_bot.i18n import detect_locale, supported_locales, translate
-from notifyme_bot.llm import (
-    LLMServiceError,
-    OpenAICompatibleStructuredChatProvider,
-)
+from notifyme_bot.llm import LLMServiceError, OpenAICompatibleService
 from notifyme_bot.llm_parser import (
     LLMReminderParser,
 )
@@ -61,17 +59,20 @@ def build_application(settings: Settings) -> Application:
 
     repository = ReminderRepository(settings.database_path)
     base = (settings.base_url or AITUNNEL_BASE_URL).strip().rstrip("/")
+    service = OpenAICompatibleService(
+        api_key=settings.api_key,
+        model=settings.model_name,
+        base_url=base,
+        stt_model=settings.stt_model,
+    )
     parser = LLMReminderParser(
-        provider=OpenAICompatibleStructuredChatProvider(
-            api_key=settings.api_key,
-            model=settings.model_name,
-            base_url=base,
-        ),
+        provider=service,
         default_timezone=settings.default_timezone,
     )
     application.bot_data["settings"] = settings
     application.bot_data["repository"] = repository
     application.bot_data["parser"] = parser
+    application.bot_data["llm"] = service
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stop", stop))
@@ -82,6 +83,7 @@ def build_application(settings: Settings) -> Application:
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, on_text_message)
     )
+    application.add_handler(MessageHandler(filters.VOICE, on_voice_message))
     return application
 
 
@@ -275,26 +277,97 @@ async def set_locale(
 async def on_text_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    if (
-        update.effective_user is None
-        or update.effective_chat is None
-        or update.effective_message is None
-    ):
+    if update.effective_message is None:
         return
     message_text = (update.effective_message.text or "").strip()
     if not message_text:
         return
-    locale = await _locale_code(update, context)
+    await _handle_message_text(update, context, message_text)
 
-    repository, parser, scheduler, settings = _runtime_services(context)
-    if await _is_access_denied(update, context, repository, settings, locale):
+
+async def on_voice_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Transcribe the voice note, then reuse the text pipeline unchanged."""
+    message = update.effective_message
+    if message is None or message.voice is None:
         return
+    guard = await _guard_message(update, context)
+    if guard is None:
+        return
+    locale, _ = guard
+
+    status = await message.reply_text(_t(locale, "status_transcribing"))
+    try:
+        downloaded = BytesIO()
+        tg_file = await context.bot.get_file(message.voice.file_id)
+        await tg_file.download_to_memory(downloaded)
+        service: OpenAICompatibleService = context.application.bot_data["llm"]
+        transcript = await service.transcribe(
+            downloaded.getvalue(),
+            message.voice.mime_type or "audio/ogg",
+            language=locale,
+        )
+    except LLMServiceError:
+        LOGGER.exception("Transcription failed")
+        await status.edit_text(_t(locale, "transcribe_error"))
+        return
+    except Exception:
+        LOGGER.exception("Voice download failed")
+        await status.edit_text(_t(locale, "transcribe_error"))
+        return
+
+    if not transcript:
+        await status.edit_text(_t(locale, "transcribe_empty"))
+        return
+    await status.delete()
+    await _handle_message_text(update, context, transcript)
+
+
+async def _guard_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> (
+    tuple[
+        str,
+        tuple[
+            ReminderRepository, LLMReminderParser, ReminderScheduler, Settings
+        ],
+    ]
+    | None
+):
+    """Common gate for text and voice: access, subscription, locale.
+
+    Returns the resolved locale plus the runtime services, or ``None`` after
+    telling the user why the message was rejected.
+    """
+    if update.effective_user is None or update.effective_chat is None:
+        return None
+    locale = await _locale_code(update, context)
+    services = _runtime_services(context)
+    repository, _, _, settings = services
+    if await _is_access_denied(update, context, repository, settings, locale):
+        return None
     if not await repository.is_subscribed(update.effective_user.id):
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=_t(locale, "unsubscribed"),
         )
+        return None
+    return locale, services
+
+
+async def _handle_message_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    message_text: str,
+) -> None:
+    """Schedule or delete from one piece of text, whatever its origin."""
+    guard = await _guard_message(update, context)
+    if guard is None:
         return
+    locale, services = guard
+    repository, parser, scheduler, settings = services
 
     try:
         timezone_name = await _effective_timezone_name(

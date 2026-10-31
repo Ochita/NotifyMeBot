@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from notifyme_bot.llm import OpenAICompatibleStructuredChatProvider
+from notifyme_bot.llm import OpenAICompatibleService
 from notifyme_bot.models import (
     CommandParseResult,
     ParsedDeleteRequest,
@@ -31,7 +31,7 @@ class LLMReminderParser:
 
     def __init__(
         self,
-        provider: OpenAICompatibleStructuredChatProvider,
+        provider: OpenAICompatibleService,
         default_timezone: str,
     ) -> None:
         self._provider = provider

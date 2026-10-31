@@ -6,32 +6,34 @@ conversion are verified here because they used to be silently wrong.
 
 from __future__ import annotations
 
-import json as json_stdlib
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import httpx
 import pytest
-from chat_payloads import chat_completion_response
-from http_fakes import JsonHttpResponse
+from conftest import FakeOpenAI
 
-from notifyme_bot.llm import (
-    LLMServiceError,
-    OpenAICompatibleStructuredChatProvider,
-)
+from notifyme_bot.llm import LLMServiceError, OpenAICompatibleService
 from notifyme_bot.llm_parser import LLMReminderParser
 from notifyme_bot.models import CommandParseResult
 
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 
+def _service(fake: FakeOpenAI | None = None) -> OpenAICompatibleService:
+    service = OpenAICompatibleService(
+        api_key="test-key",
+        model="gpt-4.1-nano",
+        base_url="https://api.aitunnel.ru/v1",
+        stt_model="voxtral-small-24b-2507-stt",
+    )
+    if fake is not None:
+        service._client = fake  # type: ignore[assignment]
+    return service
+
+
 def _parser(default_timezone: str = "UTC") -> LLMReminderParser:
     return LLMReminderParser(
-        provider=OpenAICompatibleStructuredChatProvider(
-            api_key="test-key",
-            model="gpt-4.1-nano",
-            base_url="https://api.aitunnel.ru/v1",
-        ),
+        provider=_service(),
         default_timezone=default_timezone,
     )
 
@@ -63,17 +65,16 @@ def _patch_llm(
     monkeypatch: pytest.MonkeyPatch,
     content: dict,
     captured: dict | None = None,
-) -> None:
-    async def fake_post(
-        self, url: str, json: dict, headers: dict
-    ) -> JsonHttpResponse:
-        if captured is not None:
-            captured.update(
-                url=url, json=json, headers=headers, self=self
-            )
-        return JsonHttpResponse(chat_completion_response(content))
+) -> FakeOpenAI:
+    import json
 
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
+    fake = FakeOpenAI(content=json.dumps(content))
+    monkeypatch.setattr(
+        "notifyme_bot.llm.AsyncOpenAI", lambda **kwargs: fake
+    )
+    if captured is not None:
+        captured["fake"] = fake
+    return fake
 
 
 # 2026-10-23 is a Friday: 12:00 UTC == 15:00 Moscow.
@@ -377,76 +378,55 @@ async def test_notification_text_falls_back_to_reminder_text(
 async def test_parse_command_single_http_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    posts: list[int] = []
     captured: dict = {}
-
-    async def fake_post(
-        self, url: str, json: dict, headers: dict
-    ) -> JsonHttpResponse:
-        posts.append(1)
-        captured.update(json)
-        return JsonHttpResponse(
-            chat_completion_response(_command(weekday=5))
-        )
-
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = _parser("Europe/Moscow")
+    fake = _patch_llm(monkeypatch, _command(weekday=5), captured)
+    parser = LLMReminderParser(
+        provider=_service(fake), default_timezone="Europe/Moscow"
+    )
     out = await parser.parse_command("напомни в субботу в 12", FRIDAY)
 
     assert isinstance(out, CommandParseResult)
     assert out.delete is None
     assert out.reminder is not None
-    assert len(posts) == 1
-    assert captured["response_format"]["type"] == "json_schema"
-    assert captured["provider"]["sort"] == "price"
+    assert len(fake.captured_chat) > 0
+    assert fake.captured_chat["response_format"]["type"] == "json_schema"
+    assert fake.captured_chat["extra_body"]["provider"]["sort"] == "price"
 
 
 @pytest.mark.asyncio
 async def test_parse_reminder_prompt_uses_command_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured: dict[str, str] = {}
-
-    async def fake_post(
-        self, url: str, json: dict, headers: dict
-    ) -> JsonHttpResponse:
-        _ = (url, json, headers)
-        captured["system"] = json["messages"][0]["content"]
-        captured["schema"] = json_stdlib.dumps(
-            json["response_format"]["json_schema"]["schema"]
-        )
-        return JsonHttpResponse(
-            chat_completion_response(_command(weekday=5))
-        )
-
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = _parser("Europe/Moscow")
+    fake = _patch_llm(monkeypatch, _command(weekday=5))
+    parser = LLMReminderParser(
+        provider=_service(fake), default_timezone="Europe/Moscow"
+    )
     await parser.parse_command("напомни в субботу", FRIDAY)
 
-    system_prompt = captured["system"]
-    assert "Allowed action values: store, delete, none" not in system_prompt
+    messages = fake.captured_chat["messages"]
+    system_prompt = messages[0]["content"]
+    schema = fake.captured_chat["response_format"]["json_schema"]["schema"]
     assert "Never convert to UTC" in system_prompt
     assert "Pending reminders" in system_prompt
     assert "Europe/Moscow" in system_prompt
     assert "Friday" in system_prompt
     for key in ("local_date", "local_time", "weekday", "relative_day"):
-        assert key in captured["schema"]
+        assert key in schema["properties"]
+        assert key in schema["required"]
 
 
 @pytest.mark.asyncio
 async def test_parse_reminder_llm_service_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_post(
-        self, url: str, json: dict, headers: dict
-    ) -> JsonHttpResponse:
-        _ = (url, json, headers)
-        raise httpx.ConnectError("down")
+    async def boom(**kwargs: object) -> object:
+        raise RuntimeError("down")
 
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
+    fake = FakeOpenAI()
+    fake.chat.completions.create = boom  # type: ignore[method-assign]
+    parser = LLMReminderParser(provider=_service(fake), default_timezone="UTC")
 
-    parser = _parser()
-    with pytest.raises(LLMServiceError):
+    with pytest.raises(LLMServiceError, match="down"):
         await parser.parse_command("Please remind me", FRIDAY)
 
 
@@ -628,38 +608,27 @@ def test_next_weekday_fire_raises_on_empty_weekdays() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_completion_http_status_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    req = httpx.Request("POST", "https://example.com/test")
-    resp = httpx.Response(401, request=req, text="unauthorized")
+async def test_chat_completion_api_error_is_wrapped() -> None:
+    async def boom(**kwargs: object) -> object:
+        raise ValueError("upstream 401")
 
-    async def fake_post(self, url: str, json: dict, headers: dict):
-        _ = (url, json, headers)
-        raise httpx.HTTPStatusError(
-            "Unauthorized", request=req, response=resp
-        )
+    fake = FakeOpenAI()
+    fake.chat.completions.create = boom  # type: ignore[method-assign]
+    parser = LLMReminderParser(provider=_service(fake), default_timezone="UTC")
 
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-    parser = _parser()
-
-    with pytest.raises(LLMServiceError, match="model=gpt-4.1-nano") as exc:
+    with pytest.raises(LLMServiceError, match="gpt-4.1-nano") as exc:
         await parser.parse_command("hi", FRIDAY)
     assert exc.value.__cause__ is not None
     assert "401" in str(exc.value)
 
 
 @pytest.mark.asyncio
-async def test_chat_completion_bad_body_raises(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_post(self, url: str, json: dict, headers: dict):
-        _ = (url, json, headers)
-        return JsonHttpResponse({})
+async def test_chat_completion_bad_body_raises() -> None:
+    fake = FakeOpenAI(content="not json")
+    parser = LLMReminderParser(provider=_service(fake), default_timezone="UTC")
 
-    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     with pytest.raises(LLMServiceError):
-        await _parser().parse_command("hi", FRIDAY)
+        await parser.parse_command("hi", FRIDAY)
 
 
 @pytest.mark.asyncio

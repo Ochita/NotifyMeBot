@@ -16,7 +16,7 @@ en:
     /set_locale <code> - set your language
     /list - list pending reminders
 
-    Then send any reminder request in plain language.
+    Then send any reminder request as text or as a voice message.
   no_pending: No pending reminders.
   pending_header: "Pending reminders:"
   set_timezone_missing: |-
@@ -37,6 +37,9 @@ en:
     Please try again in a minute.
   parse_error: I could not parse this reminder right now. Please try again.
   not_schedulable: I did not detect a schedulable reminder in that message.
+  status_transcribing: Transcribing the voice message…
+  transcribe_error: Could not transcribe the voice message. Please try again.
+  transcribe_empty: I could not hear any speech in that voice message.
   delete_none: There are no pending reminders to delete.
   delete_not_found: I could not find a matching reminder to delete.
   delete_done: "Deleted reminders: {count}"
@@ -66,7 +69,7 @@ ru:
     /set_locale <код> - установить язык
     /list - список активных напоминаний
 
-    После этого отправьте напоминание обычным текстом.
+    После этого отправьте напоминание текстом или голосовым сообщением.
   no_pending: "Активных напоминаний нет."
   pending_header: "Активные напоминания:"
   set_timezone_missing: |-
@@ -87,6 +90,9 @@ ru:
     с AI-сервисом. Попробуйте еще раз через минуту.
   parse_error: Сейчас не получилось разобрать напоминание. Попробуйте еще раз.
   not_schedulable: Не удалось найти в сообщении напоминание с временем.
+  status_transcribing: Расшифровываю голосовое сообщение…
+  transcribe_error: Не удалось расшифровать голосовое. Попробуйте еще раз.
+  transcribe_empty: В голосовом сообщении не удалось разобрать речь.
   delete_none: Нет активных напоминаний для удаления.
   delete_not_found: Не удалось найти подходящее напоминание для удаления.
   delete_done: "Удалено напоминаний: {count}"
@@ -116,7 +122,7 @@ it:
     /set_locale <codice> - imposta la lingua
     /list - elenco dei promemoria attivi
 
-    Poi invia un promemoria in linguaggio naturale.
+    Poi invia un promemoria come testo o come messaggio vocale.
   no_pending: Nessun promemoria attivo.
   pending_header: "Promemoria attivi:"
   set_timezone_missing: |-
@@ -137,6 +143,9 @@ it:
     Riprova tra un minuto.
   parse_error: Non riesco a interpretare questo promemoria adesso. Riprova.
   not_schedulable: Non ho rilevato un promemoria pianificabile nel messaggio.
+  status_transcribing: Trascrivo il messaggio vocale…
+  transcribe_error: Non sono riuscito a trascrivere il vocale. Riprova.
+  transcribe_empty: Nel vocale non ho sentito parlato riconoscibile.
   delete_none: Non ci sono promemoria attivi da eliminare.
   delete_not_found: Non trovo un promemoria corrispondente da eliminare.
   delete_done: "Promemoria eliminati: {count}"
@@ -166,7 +175,7 @@ fr:
     /set_locale <code> - définir la langue
     /list - liste des rappels actifs
 
-    Ensuite, envoyez un rappel en langage naturel.
+    Ensuite, envoyez un rappel en texte ou en message vocal.
   no_pending: Aucun rappel actif.
   pending_header: "Rappels actifs :"
   set_timezone_missing: |-
@@ -187,6 +196,9 @@ fr:
     Réessayez dans une minute.
   parse_error: Impossible d'analyser ce rappel maintenant. Réessayez.
   not_schedulable: Je n'ai pas détecté de rappel planifiable dans ce message.
+  status_transcribing: Transcription du message vocal…
+  transcribe_error: Impossible de transcrire le vocal. Réessayez.
+  transcribe_empty: Je n'ai entendu aucune parole dans ce message vocal.
   delete_none: Aucun rappel actif à supprimer.
   delete_not_found: Je n'ai trouvé aucun rappel correspondant à supprimer.
   delete_done: "Rappels supprimés : {count}"
@@ -216,7 +228,7 @@ de:
     /set_locale <Code> - Sprache festlegen
     /list - aktive Erinnerungen anzeigen
 
-    Danach sende eine Erinnerung in natürlicher Sprache.
+    Danach sende eine Erinnerung als Text oder als Sprachnachricht.
   no_pending: Keine aktiven Erinnerungen.
   pending_header: "Aktive Erinnerungen:"
   set_timezone_missing: |-
@@ -237,6 +249,9 @@ de:
     Bitte versuche es in einer Minute erneut.
   parse_error: Ich konnte diese Erinnerung gerade nicht verarbeiten.
   not_schedulable: Keine planbare Erinnerung in der Nachricht erkannt.
+  status_transcribing: Sprachnachricht wird transkribiert…
+  transcribe_error: Die Sprachnachricht konnte nicht transkribiert werden.
+  transcribe_empty: In der Sprachnachricht war keine Sprache zu erkennen.
   delete_none: Es gibt keine aktiven Erinnerungen zum Löschen.
   delete_not_found: Keine passende Erinnerung zum Löschen gefunden.
   delete_done: "Gelöschte Erinnerungen: {count}"
@@ -266,7 +281,7 @@ uk:
     /set_locale <код> - встановити мову
     /list - список активних нагадувань
 
-    Після цього надішліть нагадування звичайним текстом.
+    Після цього надішліть нагадування текстом або голосовим повідомленням.
   no_pending: Активних нагадувань немає.
   pending_header: "Активні нагадування:"
   set_timezone_missing: |-
@@ -287,6 +302,9 @@ uk:
     Спробуйте ще раз за хвилину.
   parse_error: Зараз не вдалося розібрати нагадування. Спробуйте ще раз.
   not_schedulable: Не вдалося знайти у повідомленні нагадування з часом.
+  status_transcribing: Розшифровую голосове повідомлення…
+  transcribe_error: Не вдалося розшифрувати голосове. Спробуйте ще раз.
+  transcribe_empty: У голосовому повідомленні не вдалося розібрати мову.
   delete_none: Немає активних нагадувань для видалення.
   delete_not_found: Не вдалося знайти відповідне нагадування для видалення.
   delete_done: "Видалено нагадувань: {count}"
@@ -316,7 +334,7 @@ es:
     /set_locale <código> - configurar idioma
     /list - lista de recordatorios activos
 
-    Luego envía un recordatorio en lenguaje natural.
+    Luego envía un recordatorio como texto o como mensaje de voz.
   no_pending: No hay recordatorios activos.
   pending_header: "Recordatorios activos:"
   set_timezone_missing: |-
@@ -337,6 +355,9 @@ es:
     Vuelve a intentarlo en un minuto.
   parse_error: No pude interpretar este recordatorio ahora. Inténtalo de nuevo.
   not_schedulable: No detecté un recordatorio programable en ese mensaje.
+  status_transcribing: Transcribiendo el mensaje de voz…
+  transcribe_error: No pude transcribir el audio. Inténtalo de nuevo.
+  transcribe_empty: No se distingue ninguna voz en ese mensaje de audio.
   delete_none: No hay recordatorios activos para eliminar.
   delete_not_found: No encontré un recordatorio coincidente para eliminar.
   delete_done: "Recordatorios eliminados: {count}"

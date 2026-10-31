@@ -33,7 +33,9 @@ def test_build_application_registers_services(tmp_path: Path) -> None:
     assert "settings" in app.bot_data
     assert "repository" in app.bot_data
     assert "parser" in app.bot_data
-    assert app.bot_data["parser"]._provider._base_url == AITUNNEL_BASE_URL
+    assert "llm" in app.bot_data
+    client = app.bot_data["parser"]._provider._client
+    assert str(client.base_url).rstrip("/") == AITUNNEL_BASE_URL
 
 
 @pytest.mark.asyncio

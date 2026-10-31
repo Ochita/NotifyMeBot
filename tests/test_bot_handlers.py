@@ -21,6 +21,7 @@ from notifyme_bot.bot import (
     help_command,
     list_reminders,
     on_text_message,
+    on_voice_message,
     set_timezone,
     start,
     stop,
@@ -562,3 +563,163 @@ def test_list_recurrence_suffix_minute_and_weekly() -> None:
     )
     out = _list_recurrence_suffix("en", w)
     assert "Mon" in out and "Wed" in out
+
+
+class _FakeVoice:
+    def __init__(self, file_id: str = "file-1") -> None:
+        self.file_id = file_id
+        self.mime_type = "audio/ogg"
+
+
+class _FakeVoiceMessage(FakeMessage):
+    def __init__(self, text: str | None = None) -> None:
+        super().__init__(text)
+        self.voice = _FakeVoice()
+        self.replies: list[str] = []
+
+    async def reply_text(self, text: str) -> "_FakeStatus":
+        status = _FakeStatus(text)
+        self.replies.append(text)
+        return status
+
+
+class _FakeStatus:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.edited: list[str] = []
+        self.deleted = False
+
+    async def edit_text(self, text: str) -> None:
+        self.edited.append(text)
+
+    async def delete(self) -> None:
+        self.deleted = True
+
+
+class _FakeTelegramFile:
+    async def download_to_memory(self, buf) -> None:
+        buf.write(b"OGG-DATA")
+
+
+class _FakeVoiceBot(FakeBot):
+    def __init__(self) -> None:
+        super().__init__()
+        self.file_requests: list[str] = []
+
+    async def get_file(self, file_id: str) -> _FakeTelegramFile:
+        self.file_requests.append(file_id)
+        return _FakeTelegramFile()
+
+
+class _FakeTranscriber:
+    def __init__(self, text: str = "", error: Exception | None = None):
+        self._text = text
+        self._error = error
+        self.calls: list[dict] = []
+
+    async def transcribe(
+        self, audio: bytes, mime_type: str, language: str | None = None
+    ) -> str:
+        self.calls.append(
+            {"audio": audio, "mime": mime_type, "language": language}
+        )
+        if self._error is not None:
+            raise self._error
+        return self._text
+
+
+def _voice_context(
+    transcriber: _FakeTranscriber,
+    parser: "_FakeParser",
+    repo: "_FakeRepo",
+    scheduler: "_FakeScheduler",
+):
+    bot = _FakeVoiceBot()
+    app = FakeApp(
+        bot_data={
+            "repository": repo,
+            "parser": parser,
+            "scheduler": scheduler,
+            "settings": make_settings(),
+            "llm": transcriber,
+        },
+        bot=bot,
+    )
+    return FakeContext(application=app, bot=bot), bot
+
+
+@pytest.mark.asyncio
+async def test_voice_message_transcribes_and_schedules() -> None:
+    repo = _FakeRepo()
+    repo.subscribed[1] = True
+    scheduler = _FakeScheduler()
+    parsed = ParsedReminder(
+        reminder_text="позвонить маме",
+        notification_text="Напоминание: позвони маме.",
+        remind_at_utc=datetime.now(UTC) + timedelta(hours=1),
+        is_recurring=False,
+        recurrence_unit=None,
+        recurrence_interval=None,
+        recurrence_weekdays=None,
+    )
+    parser = _FakeParser(parsed)
+    transcriber = _FakeTranscriber("напомни позвонить маме")
+    context, bot = _voice_context(transcriber, parser, repo, scheduler)
+    update = FakeUpdate(FakeUser(1), FakeChat(100), _FakeVoiceMessage())
+
+    await on_voice_message(update, context)
+
+    assert bot.file_requests == ["file-1"]
+    assert transcriber.calls[0]["audio"] == b"OGG-DATA"
+    assert transcriber.calls[0]["mime"] == "audio/ogg"
+    assert len(repo.created) == 1
+    assert len(scheduler.scheduled) == 1
+    assert "Reminder saved" in bot.messages[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_voice_message_empty_transcript_does_not_schedule() -> None:
+    repo = _FakeRepo()
+    repo.subscribed[1] = True
+    scheduler = _FakeScheduler()
+    transcriber = _FakeTranscriber("")
+    context, bot = _voice_context(
+        transcriber, _FakeParser(None), repo, scheduler
+    )
+    update = FakeUpdate(FakeUser(1), FakeChat(100), _FakeVoiceMessage())
+
+    await on_voice_message(update, context)
+
+    assert repo.created == []
+    assert scheduler.scheduled == []
+
+
+@pytest.mark.asyncio
+async def test_voice_message_transcription_error_is_reported() -> None:
+    repo = _FakeRepo()
+    repo.subscribed[1] = True
+    transcriber = _FakeTranscriber(error=LLMServiceError("provider down"))
+    context, bot = _voice_context(
+        transcriber, _FakeParser(None), repo, _FakeScheduler()
+    )
+    update = FakeUpdate(FakeUser(1), FakeChat(100), _FakeVoiceMessage())
+
+    await on_voice_message(update, context)
+
+    assert repo.created == []
+    assert bot.messages == []
+
+
+@pytest.mark.asyncio
+async def test_voice_message_unsubscribed_skips_transcription() -> None:
+    repo = _FakeRepo()
+    transcriber = _FakeTranscriber("ignored")
+    context, bot = _voice_context(
+        transcriber, _FakeParser(None), repo, _FakeScheduler()
+    )
+    update = FakeUpdate(FakeUser(1), FakeChat(100), _FakeVoiceMessage())
+
+    await on_voice_message(update, context)
+
+    assert transcriber.calls == []
+    assert "unsubscribed" in bot.messages[-1]["text"]

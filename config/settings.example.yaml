@@ -5,6 +5,8 @@ api_key: "sk-aitunnel-your-key"
 
 # gpt-4.1-nano: strict JSON schema, no reasoning-token tax.
 model_name: "gpt-4.1-nano"
+# Speech-to-text model for voice messages.
+stt_model: "voxtral-small-24b-2507-stt"
 
 # App behavior
 default_timezone: "UTC"

@@ -7,7 +7,9 @@ and stored in SQLite.
 ## What it does
 
 - User subscribes with `/start`
-- User sends natural language reminder text
+- User sends natural language reminder text, or a voice message
+  (transcribed by the configured speech-to-text model, then handled by the
+  exact same pipeline)
 - User can schedule recurring reminders (for example: every Monday,
   every 2 days, every week, every Wednesday and Saturday)
 - User can also delete reminders in natural language
@@ -88,6 +90,7 @@ Edit `config/settings.yaml` and set:
 - `base_url` (default `https://api.aitunnel.ru/v1`)
 - `api_key` (AITunnel key, `sk-aitunnel-…`)
 - `model_name` (default `gpt-4.1-nano`)
+- `stt_model` (default `voxtral-small-24b-2507-stt`) for voice messages
 - optionally `default_timezone` and `default_locale` (`en`, `ru`, `uk`, `it`, `fr`, `de`, `es`)
 
 2. Build image:

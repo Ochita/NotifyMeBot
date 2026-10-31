@@ -2,6 +2,7 @@ telegram_bot_token: "your-telegram-bot-token"
 base_url: "https://api.aitunnel.ru/v1"
 api_key: "sk-aitunnel-your-key"
 model_name: "gpt-4.1-nano"
+stt_model: "voxtral-small-24b-2507-stt"
 
 default_timezone: "UTC"
 default_locale: "en"

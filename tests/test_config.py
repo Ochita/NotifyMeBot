@@ -132,8 +132,40 @@ def test_load_settings_defaults_model_name(tmp_path: Path) -> None:
     )
     settings = load_settings(str(config_file))
     assert settings.model_name == "gpt-4.1-nano"
+    assert settings.stt_model == "voxtral-small-24b-2507-stt"
     assert settings.base_url is None
     assert settings.default_locale == "en"
+
+
+def test_load_settings_reads_custom_stt_model(tmp_path: Path) -> None:
+    config_file = tmp_path / "settings.yaml"
+    config_file.write_text(
+        "\n".join(
+            [
+                'telegram_bot_token: "tg-token"',
+                'api_key: "sk-test"',
+                'stt_model: "whisper-1"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert load_settings(str(config_file)).stt_model == "whisper-1"
+
+
+def test_load_settings_rejects_empty_stt_model(tmp_path: Path) -> None:
+    config_file = tmp_path / "settings.yaml"
+    config_file.write_text(
+        "\n".join(
+            [
+                'telegram_bot_token: "tg-token"',
+                'api_key: "sk-test"',
+                'stt_model: ""',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="stt_model"):
+        load_settings(str(config_file))
 
 
 def test_load_settings_default_locale(tmp_path: Path) -> None:
