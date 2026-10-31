@@ -7,8 +7,9 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
-from notifyme_bot.config import Settings
-from notifyme_bot.models import Reminder
+from notifyme_bot.config import AITUNNEL_BASE_URL, Settings
+from notifyme_bot.llm import OpenAICompatibleService
+from notifyme_bot.models import Recurrence, Reminder
 
 
 @dataclass
@@ -25,6 +26,7 @@ class FakeChat:
 @dataclass
 class FakeMessage:
     text: str | None
+    voice: Any = None
 
 
 @dataclass
@@ -56,7 +58,7 @@ class FakeContext:
 
 
 def make_reminder(**overrides: Any) -> Reminder:
-    """``Reminder`` with defaults; override only what a test cares about."""
+    """One-shot ``Reminder`` by default; pass ``recurrence=`` for a rule."""
     base: dict[str, Any] = {
         "id": 1,
         "user_id": 1,
@@ -65,19 +67,42 @@ def make_reminder(**overrides: Any) -> Reminder:
         "notification_text": "Notification: task",
         "remind_at_utc": datetime.now(UTC) + timedelta(days=1),
         "timezone": "UTC",
-        "is_recurring": False,
-        "recurrence_unit": None,
-        "recurrence_interval": None,
-        "recurrence_weekdays": None,
+        "recurrence": None,
     }
     base.update(overrides)
     return Reminder(**base)
 
 
+def make_recurrence(
+    unit: str = "day", interval: int = 1, **overrides: Any
+) -> Recurrence:
+    """Recurrence rule; keyword overrides keep the call sites readable."""
+    return Recurrence(unit=unit, interval=interval, **overrides)
+
+
+def make_service(
+    fake: FakeOpenAI | None = None,
+) -> OpenAICompatibleService:
+    """Real service; ``fake`` replaces its client when given.
+
+    With no argument the client comes from whatever ``AsyncOpenAI`` is patched
+    to, so tests that monkeypatch the constructor keep working.
+    """
+    service = OpenAICompatibleService(
+        api_key="test-key",
+        model="gpt-4.1-nano",
+        base_url=AITUNNEL_BASE_URL,
+        stt_model="voxtral-small-24b-2507-stt",
+    )
+    if fake is not None:
+        service._client = fake  # type: ignore[assignment]
+    return service
+
+
 def make_settings(**overrides: Any) -> Settings:
     base: dict[str, Any] = {
         "telegram_bot_token": "x",
-        "base_url": None,
+        "base_url": AITUNNEL_BASE_URL,
         "api_key": "y",
         "model_name": "gpt-4.1-nano",
         "stt_model": "voxtral-small-24b-2507-stt",
@@ -91,16 +116,20 @@ def make_settings(**overrides: Any) -> Settings:
 
 
 class FakeChatCompletions:
-    """Minimal stand-in for ``client.chat.completions``."""
+    """Minimal stand-in for ``client.chat.completions`` (``parse`` helper)."""
 
     def __init__(self, content: str, captured: dict | None = None) -> None:
         self._content = content
         self._captured = captured
 
-    async def create(self, **kwargs: Any) -> Any:
+    async def parse(self, **kwargs: Any) -> Any:
         if self._captured is not None:
             self._captured.update(kwargs)
-        message = SimpleNamespace(content=self._content)
+        # The real SDK returns ``parsed`` already built; mirror that and keep
+        # ``content`` identical to a gateway that honours response_format.
+        model = kwargs["response_format"]
+        parsed = model.model_validate_json(self._content)
+        message = SimpleNamespace(parsed=parsed, content=self._content)
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 

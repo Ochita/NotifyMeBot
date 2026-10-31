@@ -4,9 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: notifyme-bot:latest
-    container_name: notifyme-bot
     restart: unless-stopped
-    command: ["python", "-m", "notifyme_bot", "--config", "/run/secrets/notifyme/settings.yaml"]
     volumes:
       - ./config/settings.yaml:/run/secrets/notifyme/settings.yaml:ro
       - notifyme_data:/app/data

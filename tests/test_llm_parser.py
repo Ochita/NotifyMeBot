@@ -10,39 +10,32 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from conftest import FakeOpenAI
+from conftest import (
+    FakeOpenAI,
+    make_recurrence,
+    make_reminder,
+    make_service,
+)
+from pydantic import ValidationError
 
-from notifyme_bot.llm import LLMServiceError, OpenAICompatibleService
+from notifyme_bot.llm import LLMServiceError
 from notifyme_bot.llm_parser import LLMReminderParser
-from notifyme_bot.models import CommandParseResult
+from notifyme_bot.models import CommandExtraction, CommandParseResult
 
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 
-def _service(fake: FakeOpenAI | None = None) -> OpenAICompatibleService:
-    service = OpenAICompatibleService(
-        api_key="test-key",
-        model="gpt-4.1-nano",
-        base_url="https://api.aitunnel.ru/v1",
-        stt_model="voxtral-small-24b-2507-stt",
-    )
-    if fake is not None:
-        service._client = fake  # type: ignore[assignment]
-    return service
-
-
 def _parser(default_timezone: str = "UTC") -> LLMReminderParser:
     return LLMReminderParser(
-        provider=_service(),
+        provider=make_service(),
         default_timezone=default_timezone,
     )
 
 
-def _command(**overrides: object) -> dict:
+def _command(**overrides: object) -> CommandExtraction:
+    """Model answer with documented defaults; override what a test needs."""
     base: dict[str, object] = {
         "action": "store",
-        "should_schedule": True,
-        "should_delete": False,
         "delete_all": False,
         "delete_ids": [],
         "reminder_text": "посмотреть в окно",
@@ -58,20 +51,23 @@ def _command(**overrides: object) -> dict:
         "recurrence_weekdays": [],
     }
     base.update(overrides)
-    return base
+    return CommandExtraction(**base)
 
 
 def _patch_llm(
     monkeypatch: pytest.MonkeyPatch,
-    content: dict,
+    content: CommandExtraction | dict,
     captured: dict | None = None,
 ) -> FakeOpenAI:
     import json
 
-    fake = FakeOpenAI(content=json.dumps(content))
-    monkeypatch.setattr(
-        "notifyme_bot.llm.AsyncOpenAI", lambda **kwargs: fake
+    payload = (
+        content.model_dump()
+        if isinstance(content, CommandExtraction)
+        else content
     )
+    fake = FakeOpenAI(content=json.dumps(payload))
+    monkeypatch.setattr("notifyme_bot.llm.AsyncOpenAI", lambda **kwargs: fake)
     if captured is not None:
         captured["fake"] = fake
     return fake
@@ -83,17 +79,16 @@ FRIDAY = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
 
 async def _parse(
     monkeypatch: pytest.MonkeyPatch,
-    content: dict,
+    content: CommandExtraction,
     now_utc: datetime = FRIDAY,
     timezone_name: str = "Europe/Moscow",
-    message: str = "x",
 ):
+    """Drive the public ``parse_command`` path, as the bot does."""
     _patch_llm(monkeypatch, content)
-    return _parser(timezone_name)._build_parsed_reminder_from_data(
-        content,
-        now_utc,
-        timezone_name,
+    result = await _parser(timezone_name).parse_command(
+        "x", now_utc, timezone_name
     )
+    return result.reminder
 
 
 @pytest.mark.asyncio
@@ -104,9 +99,7 @@ async def test_weekday_uses_nearest_upcoming_local_day(
     parsed = await _parse(monkeypatch, _command(weekday=5))
 
     assert parsed is not None
-    assert parsed.remind_at_utc == datetime(
-        2026, 10, 24, 9, 0, tzinfo=UTC
-    )
+    assert parsed.remind_at_utc == datetime(2026, 10, 24, 9, 0, tzinfo=UTC)
     assert parsed.remind_at_utc.astimezone(MOSCOW).strftime("%A") == "Saturday"
 
 
@@ -151,9 +144,7 @@ async def test_weekday_today_with_future_time_stays_today(
     )
 
     assert parsed is not None
-    assert parsed.remind_at_utc == datetime(
-        2026, 10, 23, 17, 0, tzinfo=UTC
-    )
+    assert parsed.remind_at_utc == datetime(2026, 10, 23, 17, 0, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
@@ -166,9 +157,7 @@ async def test_weekday_today_with_past_time_moves_a_week(
     )
 
     assert parsed is not None
-    assert parsed.remind_at_utc == datetime(
-        2026, 10, 30, 6, 0, tzinfo=UTC
-    )
+    assert parsed.remind_at_utc == datetime(2026, 10, 30, 6, 0, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
@@ -183,9 +172,7 @@ async def test_relative_day_is_local_midnight_safe(
     )
 
     assert parsed is not None
-    assert parsed.remind_at_utc == datetime(
-        2026, 10, 24, 6, 0, tzinfo=UTC
-    )
+    assert parsed.remind_at_utc == datetime(2026, 10, 24, 6, 0, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
@@ -213,9 +200,7 @@ async def test_explicit_date_keeps_stated_calendar_day(
     )
 
     assert parsed is not None
-    assert parsed.remind_at_utc == datetime(
-        2026, 12, 31, 20, 30, tzinfo=UTC
-    )
+    assert parsed.remind_at_utc == datetime(2026, 12, 31, 20, 30, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
@@ -238,9 +223,7 @@ async def test_explicit_date_survives_month_rollover_across_timezones(
     )
 
     assert parsed is not None
-    assert parsed.remind_at_utc == datetime(
-        2026, 10, 31, 21, 30, tzinfo=UTC
-    )
+    assert parsed.remind_at_utc == datetime(2026, 10, 31, 21, 30, tzinfo=UTC)
     assert parsed.remind_at_utc.astimezone(MOSCOW).day == 1
 
 
@@ -358,7 +341,8 @@ async def test_weekly_recurrence_uses_weekday_list_and_nearest_fire(
     assert parsed is not None
     local = parsed.remind_at_utc.astimezone(MOSCOW)
     assert local.strftime("%A") == "Saturday"
-    assert parsed.recurrence_weekdays == [2, 5]
+    assert parsed.recurrence is not None
+    assert parsed.recurrence.weekdays == [2, 5]
 
 
 @pytest.mark.asyncio
@@ -381,7 +365,7 @@ async def test_parse_command_single_http_call(
     captured: dict = {}
     fake = _patch_llm(monkeypatch, _command(weekday=5), captured)
     parser = LLMReminderParser(
-        provider=_service(fake), default_timezone="Europe/Moscow"
+        provider=make_service(fake), default_timezone="Europe/Moscow"
     )
     out = await parser.parse_command("напомни в субботу в 12", FRIDAY)
 
@@ -389,7 +373,8 @@ async def test_parse_command_single_http_call(
     assert out.delete is None
     assert out.reminder is not None
     assert len(fake.captured_chat) > 0
-    assert fake.captured_chat["response_format"]["type"] == "json_schema"
+    # The pydantic model is handed to the SDK as the schema.
+    assert fake.captured_chat["response_format"] is CommandExtraction
     assert fake.captured_chat["extra_body"]["provider"]["sort"] == "price"
 
 
@@ -399,20 +384,19 @@ async def test_parse_reminder_prompt_uses_command_contract(
 ) -> None:
     fake = _patch_llm(monkeypatch, _command(weekday=5))
     parser = LLMReminderParser(
-        provider=_service(fake), default_timezone="Europe/Moscow"
+        provider=make_service(fake), default_timezone="Europe/Moscow"
     )
     await parser.parse_command("напомни в субботу", FRIDAY)
 
     messages = fake.captured_chat["messages"]
     system_prompt = messages[0]["content"]
-    schema = fake.captured_chat["response_format"]["json_schema"]["schema"]
     assert "Never convert to UTC" in system_prompt
     assert "Pending reminders" in system_prompt
     assert "Europe/Moscow" in system_prompt
     assert "Friday" in system_prompt
+    # Schema drift is now impossible: the prompt keys come from the model.
     for key in ("local_date", "local_time", "weekday", "relative_day"):
-        assert key in schema["properties"]
-        assert key in schema["required"]
+        assert key in CommandExtraction.model_fields
 
 
 @pytest.mark.asyncio
@@ -423,8 +407,10 @@ async def test_parse_reminder_llm_service_error(
         raise RuntimeError("down")
 
     fake = FakeOpenAI()
-    fake.chat.completions.create = boom  # type: ignore[method-assign]
-    parser = LLMReminderParser(provider=_service(fake), default_timezone="UTC")
+    fake.chat.completions.parse = boom  # type: ignore[method-assign]
+    parser = LLMReminderParser(
+        provider=make_service(fake), default_timezone="UTC"
+    )
 
     with pytest.raises(LLMServiceError, match="down"):
         await parser.parse_command("Please remind me", FRIDAY)
@@ -436,8 +422,6 @@ async def test_parse_delete_request_success(
 ) -> None:
     payload = _command(
         action="delete",
-        should_schedule=False,
-        should_delete=True,
         delete_ids=[10],
     )
     _patch_llm(monkeypatch, payload)
@@ -451,12 +435,23 @@ async def test_parse_delete_request_success(
 
 
 @pytest.mark.asyncio
+async def test_delete_ids_are_deduplicated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A model listing the same id twice must not delete it twice."""
+    _patch_llm(monkeypatch, _command(action="delete", delete_ids=[10, 11, 10]))
+    result = await _parser().parse_command("delete these", FRIDAY)
+
+    assert result.delete is not None
+    assert result.delete.delete_ids == [10, 11]
+
+
+@pytest.mark.asyncio
 async def test_delete_wins_when_message_asks_both(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = _command(
         action="delete",
-        should_delete=True,
         delete_all=True,
         delete_ids=[1],
     )
@@ -477,7 +472,6 @@ async def test_parse_reminder_not_schedulable(
         monkeypatch,
         _command(
             action="none",
-            should_schedule=False,
             reminder_text="",
             notification_text="",
         ),
@@ -488,15 +482,8 @@ async def test_parse_reminder_not_schedulable(
 
 
 def test_parser_helpers() -> None:
-    assert LLMReminderParser._positive_int_or_none(2) == 2
-    assert LLMReminderParser._positive_int_or_none(0) is None
-    assert LLMReminderParser._positive_int_or_none("bad") is None
-    assert LLMReminderParser._normalize_weekdays([0, "2", 9, "x", 0]) == [0, 2]
-    assert LLMReminderParser._normalize_weekdays("bad") is None
-    assert LLMReminderParser._normalize_action(" store ") == "store"
-    assert LLMReminderParser._normalize_action("DELETE") == "delete"
-    assert LLMReminderParser._normalize_action("nope") == "none"
     assert LLMReminderParser._weekday_anchor(7) == (True, None)
+    assert LLMReminderParser._weekday_anchor("three") == (True, None)
     assert LLMReminderParser._weekday_anchor("3") == (True, 3)
     assert LLMReminderParser._weekday_anchor(-1) == (False, None)
     assert LLMReminderParser._weekday_anchor("") == (False, None)
@@ -553,6 +540,22 @@ async def test_recurring_without_unit_is_rejected(
     assert (await _parser().parse_command("x", FRIDAY)).reminder is None
 
 
+def test_recurrence_unit_is_a_nullable_enum() -> None:
+    """The schema offers the five units plus null, nothing else."""
+
+    def unit(raw: str) -> object:
+        payload = '{"recurrence_unit": %s}' % raw
+        return CommandExtraction.model_validate_json(payload).recurrence_unit
+
+    for raw in ('"none"', '""', "null"):
+        assert unit(raw) is None
+    assert unit('"WEEK"') == "week"
+    assert "recurrence_unit" in CommandExtraction.model_fields
+    assert CommandExtraction().recurrence_unit is None
+    with pytest.raises(ValidationError):
+        unit('"fortnight"')
+
+
 @pytest.mark.asyncio
 async def test_recurring_defaults_interval_to_one(
     monkeypatch: pytest.MonkeyPatch,
@@ -569,21 +572,26 @@ async def test_recurring_defaults_interval_to_one(
     parsed = (await _parser().parse_command("x", FRIDAY)).reminder
 
     assert parsed is not None
-    assert parsed.recurrence_interval == 1
-    assert parsed.recurrence_weekdays == [2, 5]
+    assert parsed.recurrence == make_recurrence("week", 1, weekdays=[2, 5])
 
 
-def test_resolve_rejects_unknown_weekday_only_input() -> None:
-    assert (
-        _parser()._build_parsed_reminder_from_data(
-            _command(weekday=9), FRIDAY, "UTC"
-        )
-        is None
+@pytest.mark.asyncio
+async def test_resolve_rejects_unknown_weekday_only_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parsed = await _parse(
+        monkeypatch, _command(weekday=9), timezone_name="UTC"
     )
 
+    assert parsed is None
 
-def test_resolve_monthly_first_fire() -> None:
-    parsed = _parser()._build_parsed_reminder_from_data(
+
+@pytest.mark.asyncio
+async def test_resolve_monthly_first_fire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parsed = await _parse(
+        monkeypatch,
         _command(
             is_recurring=True,
             recurrence_unit="month",
@@ -591,20 +599,72 @@ def test_resolve_monthly_first_fire() -> None:
             local_date="2026-11-03",
             local_time="09:00",
         ),
-        FRIDAY,
-        "UTC",
+        timezone_name="UTC",
     )
 
     assert parsed is not None
-    assert parsed.recurrence_unit == "month"
+    # The monthly anchor is captured from the first fire, so later months
+    # cannot drift off the 3rd just because February is short.
+    assert parsed.recurrence == make_recurrence("month", 1, day_of_month=3)
     assert parsed.remind_at_utc == datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
 
 
-def test_next_weekday_fire_raises_on_empty_weekdays() -> None:
-    with pytest.raises(ValueError, match="weekdays"):
-        LLMReminderParser._next_weekday_fire(
-            [11], datetime.min.time(), FRIDAY, UTC
-        )
+@pytest.mark.asyncio
+async def test_weekly_recurrence_without_a_day_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A weekly rule with no weekday and no clock would drift; refuse it."""
+    parsed = await _parse(
+        monkeypatch,
+        _command(
+            is_recurring=True,
+            recurrence_unit="week",
+            recurrence_interval=1,
+            local_time="",
+        ),
+    )
+
+    assert parsed is None
+
+
+@pytest.mark.asyncio
+async def test_prompt_lists_pending_reminders_for_delete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Delete-by-description needs the pending ids in the prompt."""
+    fake = _patch_llm(monkeypatch, _command(weekday=5))
+    parser = LLMReminderParser(
+        provider=make_service(fake), default_timezone="UTC"
+    )
+    pending = [make_reminder(id=42, reminder_text="pay Alexei")]
+
+    await parser.parse_command(
+        "delete the Alexei one", FRIDAY, reminders=pending
+    )
+
+    system_prompt = fake.captured_chat["messages"][0]["content"]
+    assert "42: pay Alexei" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_weekly_recurrence_ignores_weekdays_on_other_units(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'every 2 days on Monday' has no defined meaning: the day is dropped."""
+    parsed = await _parse(
+        monkeypatch,
+        _command(
+            is_recurring=True,
+            recurrence_unit="day",
+            recurrence_interval=2,
+            recurrence_weekdays=[0],
+            weekday=0,
+            local_time="09:00",
+        ),
+    )
+
+    assert parsed is not None
+    assert parsed.recurrence == make_recurrence("day", 2)
 
 
 @pytest.mark.asyncio
@@ -613,8 +673,10 @@ async def test_chat_completion_api_error_is_wrapped() -> None:
         raise ValueError("upstream 401")
 
     fake = FakeOpenAI()
-    fake.chat.completions.create = boom  # type: ignore[method-assign]
-    parser = LLMReminderParser(provider=_service(fake), default_timezone="UTC")
+    fake.chat.completions.parse = boom  # type: ignore[method-assign]
+    parser = LLMReminderParser(
+        provider=make_service(fake), default_timezone="UTC"
+    )
 
     with pytest.raises(LLMServiceError, match="gpt-4.1-nano") as exc:
         await parser.parse_command("hi", FRIDAY)
@@ -625,7 +687,9 @@ async def test_chat_completion_api_error_is_wrapped() -> None:
 @pytest.mark.asyncio
 async def test_chat_completion_bad_body_raises() -> None:
     fake = FakeOpenAI(content="not json")
-    parser = LLMReminderParser(provider=_service(fake), default_timezone="UTC")
+    parser = LLMReminderParser(
+        provider=make_service(fake), default_timezone="UTC"
+    )
 
     with pytest.raises(LLMServiceError):
         await parser.parse_command("hi", FRIDAY)
@@ -640,16 +704,12 @@ async def test_delete_all_not_inferred_from_message(
         monkeypatch,
         _command(
             action="delete",
-            should_schedule=False,
-            should_delete=True,
             delete_all=False,
             delete_ids=[],
         ),
     )
     req = (
-        await _parser().parse_command(
-            "please delete all reminders", FRIDAY
-        )
+        await _parser().parse_command("please delete all reminders", FRIDAY)
     ).delete
 
     assert req is not None

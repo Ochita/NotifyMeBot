@@ -13,9 +13,9 @@ and stored in SQLite.
 - User can schedule recurring reminders (for example: every Monday,
   every 2 days, every week, every Wednesday and Saturday)
 - User can also delete reminders in natural language
-- Bot asks the configured LLM to extract:
-  - reminder content
-  - UTC due datetime
+- Bot asks the configured LLM to extract the reminder content and the local
+  wall-clock anchors (weekday, relative day, date, time); the code, not the
+  model, resolves them to a UTC instant
 - Bot stores reminder in SQLite
 - Bot schedules one-time notification
 - At due time, bot sends:
@@ -24,23 +24,6 @@ and stored in SQLite.
 - If the LLM is unavailable, bot returns a clear retry message
 - System messages are localized (English, Russian, Italian, French,
   German, Ukrainian, Spanish)
-
-## Project structure
-
-```text
-src/notifyme_bot/
-  __main__.py
-  main.py
-  config.py
-  models.py
-  db.py
-  llm.py
-  llm_parser.py
-  i18n.py
-  messages.yaml
-  scheduler_service.py
-  bot.py
-```
 
 ## Setup
 
@@ -77,46 +60,21 @@ Or use a custom config path:
 python -m notifyme_bot --config /run/secrets/notifyme/settings.yaml
 ```
 
-## Run with Docker
-
-1. Prepare Docker config file:
+## Run with Docker Compose
 
 ```bash
 cp config/settings.docker.example.yaml config/settings.yaml
 ```
 
-Edit `config/settings.yaml` and set:
-- `telegram_bot_token`
-- `base_url` (default `https://api.aitunnel.ru/v1`)
-- `api_key` (AITunnel key, `sk-aitunnel-…`)
-- `model_name` (default `gpt-4.1-nano`)
-- `stt_model` (default `voxtral-small-24b-2507-stt`) for voice messages
-- optionally `default_timezone` and `default_locale` (`en`, `ru`, `uk`, `it`, `fr`, `de`, `es`)
-
-2. Build image:
-
-```bash
-docker build -t notifyme-bot:latest .
-```
-
-3. Run container:
-
-```bash
-docker run -d \
-  --name notifyme-bot \
-  --restart unless-stopped \
-  -v "$(pwd)/config/settings.yaml:/run/secrets/notifyme/settings.yaml:ro" \
-  -v notifyme_data:/app/data \
-  notifyme-bot:latest
-```
-
-The SQLite database is persisted in Docker volume `notifyme_data`.
-
-## Run with Docker Compose
+Edit `config/settings.yaml` and set `telegram_bot_token`, `api_key`, and
+optionally `base_url`, `model_name`, `stt_model`, `default_timezone`,
+`default_locale` (`en`, `ru`, `uk`, `it`, `fr`, `de`, `es`). Then:
 
 ```bash
 docker compose up -d --build
 ```
+
+The SQLite database is persisted in Docker volume `notifyme_data`.
 
 Stop:
 

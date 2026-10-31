@@ -15,8 +15,8 @@ DEFAULT_STT_MODEL = "voxtral-small-24b-2507-stt"
 @dataclass(frozen=True, slots=True)
 class Settings:
     telegram_bot_token: str
-    #: Override for ``AITUNNEL_BASE_URL`` (mirror or tests).
-    base_url: str | None
+    #: Always a usable URL, already stripped of its trailing slash.
+    base_url: str
     api_key: str
     model_name: str
     stt_model: str
@@ -39,7 +39,9 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
 
     token = str(data.get("telegram_bot_token") or "").strip()
     api_key = str(data.get("api_key") or "").strip()
-    base_url = str(data.get("base_url") or "").strip() or None
+    base_url = str(data.get("base_url") or "").strip().rstrip("/") or (
+        AITUNNEL_BASE_URL
+    )
     if not token:
         raise ValueError("Missing telegram_bot_token in YAML config.")
     if not api_key:

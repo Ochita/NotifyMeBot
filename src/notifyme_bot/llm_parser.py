@@ -6,9 +6,11 @@ from zoneinfo import ZoneInfo
 
 from notifyme_bot.llm import OpenAICompatibleService
 from notifyme_bot.models import (
+    CommandExtraction,
     CommandParseResult,
     ParsedDeleteRequest,
     ParsedReminder,
+    Recurrence,
     Reminder,
 )
 
@@ -16,7 +18,6 @@ LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_TIME = time(9, 0)
 _RELATIVE_DAY_OFFSETS = {"today": 0, "tomorrow": 1, "day_after_tomorrow": 2}
-_RECURRENCE_UNITS = {"minute", "hour", "day", "week", "month"}
 
 
 class LLMReminderParser:
@@ -54,64 +55,49 @@ class LLMReminderParser:
             timezone_name=timezone_name,
             reminders=reminders or [],
         )
-        delete = self._build_parsed_delete_from_data(data)
-        reminder = self._build_parsed_reminder_from_data(
-            data, now_utc, timezone_name
+        if data.action == "delete":
+            return CommandParseResult(
+                delete=ParsedDeleteRequest(
+                    delete_all=data.delete_all,
+                    delete_ids=[]
+                    if data.delete_all
+                    else self._unique_ids(data),
+                )
+            )
+        return CommandParseResult(
+            reminder=self._build_parsed_reminder_from_data(
+                data, now_utc, timezone_name
+            )
         )
-        if delete is not None:
-            # A message that asks for both is treated as a delete request.
-            reminder = None
-        return CommandParseResult(delete=delete, reminder=reminder)
 
     def _build_parsed_reminder_from_data(
         self,
-        data: dict,
+        data: CommandExtraction,
         now_utc: datetime,
         timezone_name: str,
     ) -> ParsedReminder | None:
-        if not self._is_schedule_intent(data):
+        if data.action != "store":
             return None
 
-        reminder_text = str(data.get("reminder_text", "")).strip()
+        reminder_text = data.reminder_text.strip()
         if not reminder_text:
             return None
-        notification_text = str(data.get("notification_text", "")).strip()
+        notification_text = data.notification_text.strip()
 
-        is_recurring = bool(data.get("is_recurring"))
-        recurrence_unit_raw = (
-            str(data.get("recurrence_unit", "")).strip().lower()
-        )
-        recurrence_unit = (
-            recurrence_unit_raw
-            if recurrence_unit_raw in _RECURRENCE_UNITS
-            else None
-        )
-        recurrence_interval = self._positive_int_or_none(
-            data.get("recurrence_interval")
-        )
-        recurrence_weekdays = self._normalize_weekdays(
-            data.get("recurrence_weekdays")
-        )
-
-        if is_recurring:
-            if recurrence_unit is None:
-                return None
-            recurrence_interval = recurrence_interval or 1
-        else:
-            recurrence_unit = None
-            recurrence_interval = None
-            recurrence_weekdays = None
+        recurrence = self._build_recurrence(data)
+        if data.is_recurring and recurrence is None:
+            # "every" something we cannot name: refuse instead of guessing.
+            return None
+        # A non-recurring message still carrying a unit is a one-shot: the
+        # flag wins, and the rule is dropped rather than half-applied.
+        if not data.is_recurring:
+            recurrence = None
 
         remind_at = self._resolve_fire_time(
             data=data,
             now_utc=now_utc,
             timezone_name=timezone_name,
-            weekly_weekdays=(
-                recurrence_weekdays
-                if is_recurring and recurrence_unit == "week"
-                else None
-            ),
-            recurring_unit=recurrence_unit if is_recurring else None,
+            recurrence=recurrence,
         )
         if remind_at is None:
             LOGGER.warning(
@@ -119,38 +105,48 @@ class LLMReminderParser:
             )
             return None
 
+        if recurrence is not None and recurrence.unit == "month":
+            # Anchor the monthly grid to the day the first fire lands on, in
+            # the user's timezone; the scheduler reuses it from then on.
+            local_day = remind_at.astimezone(ZoneInfo(timezone_name)).day
+            recurrence = recurrence.model_copy(
+                update={"day_of_month": local_day}
+            )
+
         return ParsedReminder(
             reminder_text=reminder_text,
             notification_text=notification_text or reminder_text,
             remind_at_utc=remind_at,
-            is_recurring=is_recurring,
-            recurrence_unit=recurrence_unit,
-            recurrence_interval=recurrence_interval,
-            recurrence_weekdays=recurrence_weekdays,
+            recurrence=recurrence,
         )
 
-    def _build_parsed_delete_from_data(
-        self,
-        data: dict,
-    ) -> ParsedDeleteRequest | None:
-        if not self._is_delete_intent(data):
-            return None
+    @staticmethod
+    def _build_recurrence(data: CommandExtraction) -> Recurrence | None:
+        """Rule from the extraction, or ``None`` when it names no valid unit.
 
-        delete_all = bool(data.get("delete_all"))
-        return ParsedDeleteRequest(
-            delete_all=delete_all,
-            delete_ids=[] if delete_all else self._normalize_ids(
-                data.get("delete_ids")
+        ``weekdays`` only make sense for a weekly rule; on any other unit they
+        are ignored, because "every 2 days on Monday" has no defined meaning.
+        """
+        if data.recurrence_unit is None:
+            return None
+        return Recurrence(
+            unit=data.recurrence_unit,
+            interval=max(data.recurrence_interval, 1),
+            # Only a weekly rule uses a weekday list; on any other unit it
+            # would be silently ignored, so drop it at the boundary.
+            weekdays=(
+                data.recurrence_weekdays
+                if data.recurrence_unit == "week"
+                else []
             ),
         )
 
     @staticmethod
     def _resolve_fire_time(
-        data: dict,
+        data: CommandExtraction,
         now_utc: datetime,
         timezone_name: str,
-        weekly_weekdays: list[int] | None = None,
-        recurring_unit: str | None = None,
+        recurrence: Recurrence | None = None,
     ) -> datetime | None:
         """Resolve the first fire instant from the extracted local anchors.
 
@@ -162,20 +158,19 @@ class LLMReminderParser:
         tz = ZoneInfo(timezone_name)
         local_now = now_utc.astimezone(tz)
 
-        delay = LLMReminderParser._positive_int_or_none(
-            data.get("delay_minutes")
-        )
-        if delay is not None:
-            return (local_now + timedelta(minutes=delay)).astimezone(UTC)
+        if data.delay_minutes > 0:
+            return (
+                local_now + timedelta(minutes=data.delay_minutes)
+            ).astimezone(UTC)
 
-        relative_day = str(data.get("relative_day", "")).strip().lower()
+        relative_day = data.relative_day.strip().lower()
         if relative_day not in _RELATIVE_DAY_OFFSETS:
             relative_day = ""
 
         weekday_given, weekday = LLMReminderParser._weekday_anchor(
-            data.get("weekday")
+            data.weekday
         )
-        raw_date = str(data.get("local_date") or "").strip()
+        raw_date = data.local_date.strip()
         explicit_date = LLMReminderParser._parse_local_date(raw_date)
         # Garbage where a concrete date/weekday was expected must not silently
         # become "tomorrow": report failure so the bot asks again.
@@ -184,12 +179,12 @@ class LLMReminderParser:
         if raw_date and explicit_date is None:
             return None
 
-        weekdays = list(weekly_weekdays or [])
+        weekdays = list(recurrence.weekdays if recurrence else [])
         if weekday is not None:
             weekdays = sorted(set(weekdays) | {weekday})
 
-        at = LLMReminderParser._parse_local_time(data.get("local_time"))
-        clock_given = bool(str(data.get("local_time") or "").strip())
+        at = LLMReminderParser._parse_local_time(data.local_time)
+        clock_given = bool(data.local_time.strip())
         if clock_given and at is None:
             # A clock time the user stated but we cannot read: never silently
             # substitute 09:00, let the bot ask again.
@@ -198,19 +193,20 @@ class LLMReminderParser:
             relative_day or weekdays or explicit_date is not None
         )
         if at is None and not calendar_anchor:
-            interval = LLMReminderParser._positive_int_or_none(
-                data.get("recurrence_interval")
-            ) or 1
-            if recurring_unit in {"minute", "hour"}:
+            unit = recurrence.unit if recurrence else None
+            if unit in {"minute", "hour"}:
                 # "каждые 2 часа": first fire one interval from now.
-                step = timedelta(**{f"{recurring_unit}s": interval})
+                assert recurrence is not None
+                step = timedelta(**{f"{unit}s": recurrence.interval})
                 return (local_now + step).astimezone(UTC)
-            if recurring_unit in {"day", "week", "month"}:
+            if unit is not None:
                 # A calendar rule with no day would silently drift.
                 return None
         if at is None:
-            at = _DEFAULT_TIME if calendar_anchor else local_now.time().replace(
-                second=0, microsecond=0
+            at = (
+                _DEFAULT_TIME
+                if calendar_anchor
+                else local_now.time().replace(second=0, microsecond=0)
             )
 
         if relative_day:
@@ -235,7 +231,7 @@ class LLMReminderParser:
                 return None
             return candidate.astimezone(UTC)
 
-        if recurring_unit == "month" and not calendar_anchor:
+        if recurrence and recurrence.unit == "month" and not calendar_anchor:
             # Monthly grid needs an explicit day, else it drifts month to month.
             return None
 
@@ -267,24 +263,24 @@ class LLMReminderParser:
         local_now: datetime,
         tz: ZoneInfo,
     ) -> datetime:
-        """Nearest upcoming occurrence among ``weekdays`` (0=Monday)."""
-        best: datetime | None = None
-        for weekday in sorted(set(weekdays)):
-            if not 0 <= weekday <= 6:
-                continue
+        """Nearest upcoming occurrence among ``weekdays`` (0=Monday).
+
+        ``weekdays`` is always non-empty and within 0..6: ``Recurrence``
+        normalizes the rule's list and ``_weekday_anchor`` drops bad values.
+        """
+
+        def fire(weekday: int) -> datetime:
             days_ahead = (weekday - local_now.weekday()) % 7
             candidate = datetime.combine(
-                local_now.date() + timedelta(days=days_ahead),
-                at,
-                tzinfo=tz,
+                local_now.date() + timedelta(days=days_ahead), at, tzinfo=tz
             )
-            if candidate <= local_now:
-                candidate += timedelta(days=7)
-            if best is None or candidate < best:
-                best = candidate
-        if best is None:
-            raise ValueError("weekdays must contain 0..6")
-        return best.astimezone(UTC)
+            return (
+                candidate
+                if candidate > local_now
+                else candidate + timedelta(days=7)
+            )
+
+        return min(map(fire, weekdays)).astimezone(UTC)
 
     @staticmethod
     def _parse_local_time(value: object) -> time | None:
@@ -309,71 +305,9 @@ class LLMReminderParser:
             return None
 
     @staticmethod
-    def _positive_int_or_none(value: object) -> int | None:
-        try:
-            int_value = int(value)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            return None
-        return int_value if int_value > 0 else None
-
-    @staticmethod
-    def _normalize_weekdays(value: object) -> list[int] | None:
-        if not isinstance(value, list):
-            return None
-        result: list[int] = []
-        for item in value:
-            try:
-                weekday = int(item)
-            except (TypeError, ValueError):
-                continue
-            if 0 <= weekday <= 6 and weekday not in result:
-                result.append(weekday)
-        return result or None
-
-    @staticmethod
-    def _normalize_ids(value: object) -> list[int]:
-        if not isinstance(value, list):
-            return []
-        result: list[int] = []
-        for item in value:
-            try:
-                number = int(item)
-            except (TypeError, ValueError):
-                continue
-            if number not in result:
-                result.append(number)
-        return result
-
-    @staticmethod
-    def _command_schema() -> dict:
-        properties = {
-            "action": {"type": "string"},
-            "should_schedule": {"type": "boolean"},
-            "should_delete": {"type": "boolean"},
-            "delete_all": {"type": "boolean"},
-            "delete_ids": {"type": "array", "items": {"type": "integer"}},
-            "reminder_text": {"type": "string"},
-            "notification_text": {"type": "string"},
-            "local_date": {"type": "string"},
-            "local_time": {"type": "string"},
-            "weekday": {"type": "integer"},
-            "relative_day": {"type": "string"},
-            "delay_minutes": {"type": "integer"},
-            "is_recurring": {"type": "boolean"},
-            "recurrence_unit": {"type": "string"},
-            "recurrence_interval": {"type": "integer"},
-            "recurrence_weekdays": {
-                "type": "array",
-                "items": {"type": "integer"},
-            },
-        }
-        # Strict schema: every declared key must be present in the answer.
-        return {
-            "type": "object",
-            "properties": properties,
-            "required": list(properties),
-            "additionalProperties": False,
-        }
+    def _unique_ids(data: CommandExtraction) -> list[int]:
+        """Ids in the order stated, duplicates dropped."""
+        return list(dict.fromkeys(data.delete_ids))
 
     async def _extract_command(
         self,
@@ -381,18 +315,18 @@ class LLMReminderParser:
         local_now: datetime,
         timezone_name: str,
         reminders: list[Reminder],
-    ) -> dict:
-        data = await self._provider.chat_json(
+    ) -> CommandExtraction:
+        extraction = await self._provider.chat_structured(
             system_prompt=self._command_prompt(
                 local_now=local_now,
                 timezone_name=timezone_name,
                 reminders=reminders,
             ),
             user_prompt=message_text,
-            response_schema=self._command_schema(),
+            response_model=CommandExtraction,
         )
-        LOGGER.debug("LLM command payload: %s", data)
-        return data
+        LOGGER.debug("LLM command payload: %s", extraction.model_dump())
+        return extraction
 
     @staticmethod
     def _command_prompt(
@@ -412,18 +346,17 @@ class LLMReminderParser:
             "reminder bot. Return one strict JSON object with exactly the "
             "declared keys. Do not include examples or explanations.\n\n"
             "INTENT\n"
-            "action=store and should_schedule=true when the user asks to be "
-            "reminded of something. action=delete and should_delete=true when "
-            "the user asks to cancel or remove reminders. Otherwise "
-            "action=none with both booleans false. If a message reads as both "
-            "delete and schedule, prefer delete. delete_all=true only when the "
+            "action=store when the user asks to be reminded of something. "
+            "action=delete when the user asks to cancel or remove reminders. "
+            "Otherwise action=none. If a message reads as both delete and "
+            "schedule, prefer delete. delete_all=true only when the "
             "user clearly asks to remove all pending reminders. delete_ids "
             "must list only ids from Pending reminders; use [] when nothing "
             "matches. Do not invent ids, tasks or entities.\n\n"
             "TEXT\n"
             "reminder_text: the user task, verbatim and concise. "
             "notification_text: ready-to-send message that starts with a short "
-            "label meaning \"notification\" in the SAME language and script as "
+            'label meaning "notification" in the SAME language and script as '
             "the user's message (English: Notification:, Russian: "
             "Напоминание: or Уведомление:, Ukrainian: Нагадування:, Spanish: "
             "Notificación:, German: Erinnerung: or Benachrichtigung:, Chinese: "
@@ -435,45 +368,31 @@ class LLMReminderParser:
             "Report only what the user said, in local wall-clock terms.\n"
             f"Current local datetime: {local_now:%Y-%m-%d %H:%M} "
             f"({weekday_name}). User timezone: {timezone_name}.\n"
-            "local_time: \"HH:MM\" 24-hour clock as stated. Use \"09:00\" when "
+            'local_time: "HH:MM" 24-hour clock as stated. Use "09:00" when '
             "the user gave no time.\n"
             "Set exactly ONE date anchor and leave the others empty "
-            "(delay_minutes 0, relative_day \"\", weekday -1, local_date \"\"):\n"
+            '(delay_minutes 0, relative_day "", weekday -1, local_date ""):\n'
             "- delay_minutes > 0 only for pure offsets without a clock time: "
-            "\"через 10 минут\", \"через час\", \"in 2 hours\". Then local_time "
-            "must be \"\".\n"
+            '"через 10 минут", "через час", "in 2 hours". Then local_time '
+            'must be "".\n'
             "- relative_day = today | tomorrow | day_after_tomorrow for "
-            "\"сегодня\", \"завтра\", \"послезавтра\".\n"
+            '"сегодня", "завтра", "послезавтра".\n'
             "- weekday for a named weekday, Monday=0 .. Sunday=6. A bare "
-            "\"в субботу\" / \"on Saturday\" means the NEAREST upcoming such "
+            '"в субботу" / "on Saturday" means the NEAREST upcoming such '
             "weekday: today only if its time is still ahead.\n"
-            "- local_date = \"YYYY-MM-DD\" for an explicit calendar date "
-            "(\"3 ноября\", \"on 4 April\").\n"
-            "If the user gave only a clock time (\"напомни в 15:00\"), leave "
+            '- local_date = "YYYY-MM-DD" for an explicit calendar date '
+            '("3 ноября", "on 4 April").\n'
+            'If the user gave only a clock time ("напомни в 15:00"), leave '
             "every date anchor empty and keep local_time: the bot uses today, "
             "or tomorrow when that time already passed.\n"
             "Resolve weekday names and calendar dates against the current "
             "local datetime above.\n\n"
             "RECURRENCE\n"
-            "recurrence_unit is one of minute, hour, day, week, month. Weekly "
-            "rules by weekday use recurrence_weekdays with Monday=0 .. "
-            "Sunday=6. Monthly rules keep the resolved day of month (1..31). "
-            "For one-shot reminders: is_recurring=false, recurrence_unit "
-            "\"none\", recurrence_interval 0, recurrence_weekdays [].\n\n"
+            "recurrence_unit is one of minute, hour, day, week, month, and "
+            "null for a one-shot. Weekly rules by weekday use "
+            "recurrence_weekdays with Monday=0 .. Sunday=6. Monthly rules keep "
+            "the resolved day of month (1..31). For one-shot reminders: "
+            "is_recurring=false, recurrence_unit null, recurrence_interval 0, "
+            "recurrence_weekdays [].\n\n"
             f"Pending reminders (id: text):\n{catalog}"
         )
-
-    @staticmethod
-    def _normalize_action(value: object) -> str:
-        action = str(value).strip().lower()
-        return action if action in {"store", "delete", "none"} else "none"
-
-    @classmethod
-    def _is_schedule_intent(cls, data: dict) -> bool:
-        action = cls._normalize_action(data.get("action"))
-        return action == "store" or bool(data.get("should_schedule"))
-
-    @classmethod
-    def _is_delete_intent(cls, data: dict) -> bool:
-        action = cls._normalize_action(data.get("action"))
-        return action == "delete" or bool(data.get("should_delete"))

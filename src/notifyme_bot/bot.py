@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import calendar
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -14,38 +16,54 @@ from telegram.ext import (
     filters,
 )
 
-from notifyme_bot.config import AITUNNEL_BASE_URL, Settings
+from notifyme_bot.config import Settings
 from notifyme_bot.db import ReminderRepository
 from notifyme_bot.i18n import detect_locale, supported_locales, translate
 from notifyme_bot.llm import LLMServiceError, OpenAICompatibleService
-from notifyme_bot.llm_parser import (
-    LLMReminderParser,
-)
+from notifyme_bot.llm_parser import LLMReminderParser
 from notifyme_bot.models import ParsedReminder, Reminder
 from notifyme_bot.scheduler_service import ReminderScheduler
 
 LOGGER = logging.getLogger(__name__)
 
 
-async def _is_access_denied(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    repository: ReminderRepository,
-    settings: Settings,
-    locale: str,
-) -> bool:
-    """When registration is closed, only Telegram users in ``users`` may proceed."""  # noqa: E501
-    if settings.allow_new_users:
-        return False
-    if update.effective_user is None or update.effective_chat is None:
-        return False
-    if await repository.user_exists(update.effective_user.id):
-        return False
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=_t(locale, "access_closed"),
-    )
-    return True
+@dataclass(slots=True)
+class _Command:
+    """One update plus its services, already access-checked."""
+
+    user_id: int
+    chat_id: int
+    locale: str
+    repository: ReminderRepository
+    settings: Settings
+    context: ContextTypes.DEFAULT_TYPE
+
+    async def reply(self, text: str) -> None:
+        await self.context.bot.send_message(chat_id=self.chat_id, text=text)
+
+
+async def _command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> _Command | None:
+    """Shared prologue: skip updates without a user/chat, gate access.
+
+    When registration is closed, only Telegram users already in ``users``
+    may proceed.
+    """
+    user, chat = update.effective_user, update.effective_chat
+    if user is None or chat is None:
+        return None
+    repository: ReminderRepository = context.application.bot_data["repository"]
+    settings: Settings = context.application.bot_data["settings"]
+    locale = await _locale_code(update, context)
+    if not settings.allow_new_users and not await repository.user_exists(
+        user.id
+    ):
+        await context.bot.send_message(
+            chat_id=chat.id, text=translate(locale, "access_closed")
+        )
+        return None
+    return _Command(user.id, chat.id, locale, repository, settings, context)
 
 
 def build_application(settings: Settings) -> Application:
@@ -58,11 +76,10 @@ def build_application(settings: Settings) -> Application:
     )
 
     repository = ReminderRepository(settings.database_path)
-    base = (settings.base_url or AITUNNEL_BASE_URL).strip().rstrip("/")
     service = OpenAICompatibleService(
         api_key=settings.api_key,
         model=settings.model_name,
-        base_url=base,
+        base_url=settings.base_url,
         stt_model=settings.stt_model,
     )
     parser = LLMReminderParser(
@@ -104,138 +121,89 @@ async def _post_shutdown(application: Application) -> None:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_chat is None:
+    cmd = await _command(update, context)
+    if cmd is None:
         return
-    repository: ReminderRepository = context.application.bot_data["repository"]
-    settings: Settings = context.application.bot_data["settings"]
-    locale = await _locale_code(update, context)
-    if await _is_access_denied(update, context, repository, settings, locale):
-        return
-    await repository.upsert_user(
-        user_id=update.effective_user.id,
-        chat_id=update.effective_chat.id,
-    )
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=_t(
-            locale,
+    await cmd.repository.upsert_user(user_id=cmd.user_id, chat_id=cmd.chat_id)
+    await cmd.reply(
+        translate(
+            cmd.locale,
             "start",
-            default_timezone=settings.default_timezone,
-        ),
+            default_timezone=cmd.settings.default_timezone,
+        )
     )
 
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_chat is None:
+    cmd = await _command(update, context)
+    if cmd is None:
         return
-    repository: ReminderRepository = context.application.bot_data["repository"]
-    settings: Settings = context.application.bot_data["settings"]
-    locale = await _locale_code(update, context)
-    if await _is_access_denied(update, context, repository, settings, locale):
-        return
-    await repository.set_subscription(
-        update.effective_user.id, is_subscribed=False
-    )
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=_t(locale, "stop"),
-    )
+    await cmd.repository.set_subscription(cmd.user_id, is_subscribed=False)
+    await cmd.reply(translate(cmd.locale, "stop"))
 
 
 async def help_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    if update.effective_user is None or update.effective_chat is None:
+    cmd = await _command(update, context)
+    if cmd is None:
         return
-    repository: ReminderRepository = context.application.bot_data["repository"]
-    settings: Settings = context.application.bot_data["settings"]
-    locale = await _locale_code(update, context)
-    if await _is_access_denied(update, context, repository, settings, locale):
-        return
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=_t(locale, "help"),
-    )
+    await cmd.reply(translate(cmd.locale, "help"))
 
 
 async def list_reminders(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    if update.effective_user is None or update.effective_chat is None:
-        return
-    locale = await _locale_code(update, context)
-    repository: ReminderRepository = context.application.bot_data["repository"]
-    settings: Settings = context.application.bot_data["settings"]
-    if await _is_access_denied(update, context, repository, settings, locale):
+    cmd = await _command(update, context)
+    if cmd is None:
         return
     timezone_name = await _effective_timezone_name(
-        repository=repository,
-        user_id=update.effective_user.id,
-        fallback=settings.default_timezone,
+        repository=cmd.repository,
+        user_id=cmd.user_id,
+        fallback=cmd.settings.default_timezone,
     )
     timezone = ZoneInfo(timezone_name)
-    reminders = await repository.list_pending_for_user(
-        update.effective_user.id
-    )
+    reminders = await cmd.repository.list_pending(cmd.user_id)
     if not reminders:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=_t(locale, "no_pending"),
-        )
+        await cmd.reply(translate(cmd.locale, "no_pending"))
         return
 
-    lines = [_t(locale, "pending_header")]
+    lines = [translate(cmd.locale, "pending_header")]
     for reminder in reminders[:20]:
         local_dt = reminder.remind_at_utc.astimezone(timezone).strftime(
             "%Y-%m-%d %H:%M %Z"
         )
         row = f"- {local_dt}: {reminder.reminder_text}"
-        recur = _list_recurrence_suffix(locale, reminder)
+        recur = _list_recurrence_suffix(cmd.locale, reminder)
         if recur:
             row = f"{row} · {recur}"
         lines.append(row)
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id, text="\n".join(lines)
-    )
+    await cmd.reply("\n".join(lines))
 
 
 async def set_timezone(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if update.effective_user is None or update.effective_chat is None:
-        return
-    locale = await _locale_code(update, context)
-    repository: ReminderRepository = context.application.bot_data["repository"]
-    settings: Settings = context.application.bot_data["settings"]
-    if await _is_access_denied(update, context, repository, settings, locale):
+    cmd = await _command(update, context)
+    if cmd is None:
         return
 
     if not context.args:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=_t(locale, "set_timezone_missing"),
-        )
+        await cmd.reply(translate(cmd.locale, "set_timezone_missing"))
         return
 
     timezone_name = context.args[0].strip()
     try:
         ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=_t(locale, "set_timezone_invalid"),
-        )
+        await cmd.reply(translate(cmd.locale, "set_timezone_invalid"))
         return
 
-    await repository.upsert_user(
-        user_id=update.effective_user.id,
-        chat_id=update.effective_chat.id,
-    )
-    await repository.set_user_timezone(update.effective_user.id, timezone_name)
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=_t(locale, "set_timezone_saved", timezone=timezone_name),
+    await cmd.repository.upsert_user(user_id=cmd.user_id, chat_id=cmd.chat_id)
+    await cmd.repository.set_user_timezone(cmd.user_id, timezone_name)
+    await cmd.reply(
+        translate(cmd.locale, "set_timezone_saved", timezone=timezone_name)
     )
 
 
@@ -243,35 +211,19 @@ async def set_locale(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if update.effective_user is None or update.effective_chat is None:
-        return
-    locale = await _locale_code(update, context)
-    repository: ReminderRepository = context.application.bot_data["repository"]
-    settings: Settings = context.application.bot_data["settings"]
-    if await _is_access_denied(update, context, repository, settings, locale):
+    cmd = await _command(update, context)
+    if cmd is None:
         return
     if not context.args:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=_t(locale, "set_locale_missing"),
-        )
+        await cmd.reply(translate(cmd.locale, "set_locale_missing"))
         return
     chosen = context.args[0].strip().lower().split("-", maxsplit=1)[0]
     if chosen not in supported_locales():
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=_t(locale, "set_locale_invalid"),
-        )
+        await cmd.reply(translate(cmd.locale, "set_locale_invalid"))
         return
-    await repository.upsert_user(
-        user_id=update.effective_user.id,
-        chat_id=update.effective_chat.id,
-    )
-    await repository.set_user_locale(update.effective_user.id, chosen)
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=_t(chosen, "set_locale_saved", locale=chosen),
-    )
+    await cmd.repository.upsert_user(user_id=cmd.user_id, chat_id=cmd.chat_id)
+    await cmd.repository.set_user_locale(cmd.user_id, chosen)
+    await cmd.reply(translate(chosen, "set_locale_saved", locale=chosen))
 
 
 async def on_text_message(
@@ -292,12 +244,12 @@ async def on_voice_message(
     message = update.effective_message
     if message is None or message.voice is None:
         return
-    guard = await _guard_message(update, context)
-    if guard is None:
+    cmd = await _message_gate(update, context)
+    if cmd is None:
         return
-    locale, _ = guard
+    locale = cmd.locale
 
-    status = await message.reply_text(_t(locale, "status_transcribing"))
+    status = await message.reply_text(translate(locale, "status_transcribing"))
     try:
         downloaded = BytesIO()
         tg_file = await context.bot.get_file(message.voice.file_id)
@@ -310,51 +262,31 @@ async def on_voice_message(
         )
     except LLMServiceError:
         LOGGER.exception("Transcription failed")
-        await status.edit_text(_t(locale, "transcribe_error"))
+        await status.edit_text(translate(locale, "transcribe_error"))
         return
     except Exception:
         LOGGER.exception("Voice download failed")
-        await status.edit_text(_t(locale, "transcribe_error"))
+        await status.edit_text(translate(locale, "transcribe_error"))
         return
 
     if not transcript:
-        await status.edit_text(_t(locale, "transcribe_empty"))
+        await status.edit_text(translate(locale, "transcribe_empty"))
         return
     await status.delete()
     await _handle_message_text(update, context, transcript)
 
 
-async def _guard_message(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> (
-    tuple[
-        str,
-        tuple[
-            ReminderRepository, LLMReminderParser, ReminderScheduler, Settings
-        ],
-    ]
-    | None
-):
-    """Common gate for text and voice: access, subscription, locale.
-
-    Returns the resolved locale plus the runtime services, or ``None`` after
-    telling the user why the message was rejected.
-    """
-    if update.effective_user is None or update.effective_chat is None:
+async def _message_gate(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> _Command | None:
+    """Gate for text and voice: access plus subscription."""
+    cmd = await _command(update, context)
+    if cmd is None:
         return None
-    locale = await _locale_code(update, context)
-    services = _runtime_services(context)
-    repository, _, _, settings = services
-    if await _is_access_denied(update, context, repository, settings, locale):
-        return None
-    if not await repository.is_subscribed(update.effective_user.id):
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=_t(locale, "unsubscribed"),
-        )
-        return None
-    return locale, services
+    if await cmd.repository.is_subscribed(cmd.user_id):
+        return cmd
+    await cmd.reply(translate(cmd.locale, "unsubscribed"))
+    return None
 
 
 async def _handle_message_text(
@@ -363,21 +295,19 @@ async def _handle_message_text(
     message_text: str,
 ) -> None:
     """Schedule or delete from one piece of text, whatever its origin."""
-    guard = await _guard_message(update, context)
-    if guard is None:
+    cmd = await _message_gate(update, context)
+    if cmd is None:
         return
-    locale, services = guard
-    repository, parser, scheduler, settings = services
+    parser: LLMReminderParser = context.application.bot_data["parser"]
+    scheduler: ReminderScheduler = context.application.bot_data["scheduler"]
 
     try:
         timezone_name = await _effective_timezone_name(
-            repository=repository,
-            user_id=update.effective_user.id,
-            fallback=settings.default_timezone,
+            repository=cmd.repository,
+            user_id=cmd.user_id,
+            fallback=cmd.settings.default_timezone,
         )
-        pending = await repository.list_pending_for_user(
-            update.effective_user.id
-        )
+        pending = await cmd.repository.list_pending(cmd.user_id)
         parsed_result = await parser.parse_command(
             message_text=message_text,
             now_utc=datetime.now(UTC),
@@ -386,114 +316,71 @@ async def _handle_message_text(
         )
         if parsed_result.delete is not None:
             await _handle_delete_request(
-                update=update,
-                context=context,
-                repository=repository,
-                locale=locale,
-                delete_all=parsed_result.delete.delete_all,
-                delete_ids=parsed_result.delete.delete_ids,
+                cmd,
+                parsed_result.delete.delete_all,
+                parsed_result.delete.delete_ids,
             )
             return
         parsed = parsed_result.reminder
         if parsed is None:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=_t(locale, "not_schedulable"),
-            )
+            await cmd.reply(translate(cmd.locale, "not_schedulable"))
             return
     except LLMServiceError:
         LOGGER.exception("LLM provider is unavailable")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=_t(locale, "llm_error"),
-        )
+        await cmd.reply(translate(cmd.locale, "llm_error"))
         return
     except Exception:
         LOGGER.exception("Reminder parse failed")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=_t(locale, "parse_error"),
-        )
+        await cmd.reply(translate(cmd.locale, "parse_error"))
         return
 
     await _save_and_schedule_reminder(
-        update=update,
-        context=context,
-        repository=repository,
+        cmd=cmd,
         scheduler=scheduler,
-        locale=locale,
         timezone_name=timezone_name,
         source_text=message_text,
         parsed=parsed,
     )
 
 
-def _runtime_services(
-    context: ContextTypes.DEFAULT_TYPE,
-) -> tuple[ReminderRepository, LLMReminderParser, ReminderScheduler, Settings]:
-    return (
-        context.application.bot_data["repository"],
-        context.application.bot_data["parser"],
-        context.application.bot_data["scheduler"],
-        context.application.bot_data["settings"],
-    )
-
-
 async def _save_and_schedule_reminder(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    repository: ReminderRepository,
+    cmd: _Command,
     scheduler: ReminderScheduler,
-    locale: str,
     timezone_name: str,
     source_text: str,
     parsed: ParsedReminder,
 ) -> None:
-    reminder = await repository.create_reminder(
-        user_id=update.effective_user.id,
-        chat_id=update.effective_chat.id,
+    reminder = await cmd.repository.create_reminder(
+        user_id=cmd.user_id,
+        chat_id=cmd.chat_id,
         source_text=source_text,
         reminder_text=parsed.reminder_text,
         notification_text=parsed.notification_text,
         remind_at_utc=parsed.remind_at_utc,
         timezone=timezone_name,
-        is_recurring=parsed.is_recurring,
-        recurrence_unit=parsed.recurrence_unit,
-        recurrence_interval=parsed.recurrence_interval,
-        recurrence_weekdays=parsed.recurrence_weekdays,
+        recurrence=parsed.recurrence,
     )
     scheduler.schedule(reminder)
 
     local_dt = parsed.remind_at_utc.astimezone(ZoneInfo(timezone_name))
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=_t(
-            locale,
+    await cmd.reply(
+        translate(
+            cmd.locale,
             "saved",
             when=local_dt.strftime("%Y-%m-%d %H:%M %Z"),
             text=parsed.reminder_text,
-        ),
+        )
     )
 
 
 async def _handle_delete_request(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    repository: ReminderRepository,
-    locale: str,
+    cmd: _Command,
     delete_all: bool,
     delete_ids: list[int],
 ) -> None:
-    if update.effective_user is None or update.effective_chat is None:
-        return
-    reminders = await repository.list_pending_for_user(
-        update.effective_user.id
-    )
+    reminders = await cmd.repository.list_pending(cmd.user_id)
     if not reminders:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=_t(locale, "delete_none"),
-        )
+        await cmd.reply(translate(cmd.locale, "delete_none"))
         return
 
     if delete_all:
@@ -505,18 +392,14 @@ async def _handle_delete_request(
         ]
 
     if not to_delete:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=_t(locale, "delete_not_found"),
-        )
+        await cmd.reply(translate(cmd.locale, "delete_not_found"))
         return
 
     for reminder in to_delete:
-        await repository.delete_reminder(reminder.id)
+        await cmd.repository.delete_reminder(reminder.id)
 
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=_t(locale, "delete_done", count=str(len(to_delete))),
+    await cmd.reply(
+        translate(cmd.locale, "delete_done", count=str(len(to_delete)))
     )
 
 
@@ -535,37 +418,15 @@ async def _locale_code(
     return detect_locale(language_code, settings.default_locale)
 
 
-def _t(locale: str, key: str, **kwargs: str) -> str:
-    return translate(locale, key, **kwargs)
-
-
-_WEEKDAY_SHORT_EN = (
-    "Mon",
-    "Tue",
-    "Wed",
-    "Thu",
-    "Fri",
-    "Sat",
-    "Sun",
-)
-
-
 def _list_recurrence_suffix(locale: str, reminder: Reminder) -> str:
     """Short translated recurrence fragment for /list (empty if one-shot)."""
-    if not reminder.is_recurring or not reminder.recurrence_unit:
+    rule = reminder.recurrence
+    if rule is None:
         return ""
-    n = max(reminder.recurrence_interval or 1, 1)
-    unit = reminder.recurrence_unit
-    if unit == "week" and reminder.recurrence_weekdays:
-        days = ", ".join(
-            _WEEKDAY_SHORT_EN[d]
-            for d in sorted(set(reminder.recurrence_weekdays))
-            if 0 <= d <= 6
-        )
-        if days:
-            return _t(locale, "list_recur_weekly", days=days)
-    key = f"list_recur_{unit}"
-    return _t(locale, key, n=str(n))
+    if rule.unit == "week" and rule.weekdays:
+        days = ", ".join(calendar.day_abbr[day] for day in rule.weekdays)
+        return translate(locale, "list_recur_weekly", days=days)
+    return translate(locale, f"list_recur_{rule.unit}", n=str(rule.interval))
 
 
 async def _effective_timezone_name(

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from io import BytesIO
+from typing import TypeVar
 
 from openai import AsyncOpenAI
+from pydantic import BaseModel
+
+#: Structured-response model the endpoint must fill in.
+StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
 
 
 class LLMServiceError(RuntimeError):
@@ -32,40 +36,33 @@ class OpenAICompatibleService:
             raise ValueError("base_url must be non-empty.")
         self._client = AsyncOpenAI(api_key=api_key, base_url=base)
 
-    @property
-    def client(self) -> AsyncOpenAI:
-        return self._client
-
-    async def chat_json(
+    async def chat_structured(
         self,
         system_prompt: str,
         user_prompt: str,
-        response_schema: dict,
-        schema_name: str = "notifyme_command",
-    ) -> dict:
+        response_model: type[StructuredModel],
+    ) -> StructuredModel:
+        """One completion whose answer is validated into ``response_model``.
+
+        The pydantic model *is* the schema: the SDK converts it to a strict
+        JSON schema and parses the reply back, so the prompt and the contract
+        cannot drift apart.
+        """
         try:
-            completion = await self._client.chat.completions.create(
+            completion = await self._client.chat.completions.parse(
                 model=self._model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": schema_name,
-                        "strict": True,
-                        "schema": response_schema,
-                    },
-                },
+                response_format=response_model,
                 # Cheapest upstream that accepts response_format.
                 extra_body={
                     "provider": {"sort": "price", "require_parameters": True}
                 },
             )
-            raw = completion.choices[0].message.content
-            return _loads_json(raw)
+            return _parsed(completion, response_model)
         except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
             raise
         except Exception as exc:  # noqa: BLE001 - normalized for callers
@@ -96,18 +93,25 @@ class OpenAICompatibleService:
 
 
 def _audio_file(audio: bytes, mime_type: str) -> tuple[str, BytesIO, str]:
-    mime = (mime_type or "audio/ogg").split(";", 1)[0].strip().lower()
-    if not mime:
-        mime = "audio/ogg"
+    mime = (mime_type or "").split(";", 1)[0].strip().lower() or "audio/ogg"
     ext = "mp3" if mime == "audio/mpeg" else mime.rsplit("/", 1)[-1]
     return (f"voice.{ext}", BytesIO(audio), mime)
 
 
-def _loads_json(raw: object) -> dict:
-    text = str(raw or "").strip()
+def _parsed(
+    completion: object, response_model: type[StructuredModel]
+) -> StructuredModel:
+    """Pull the validated object out, or retry the text as a last resort.
+
+    Routers that ignore ``response_format`` still answer with the JSON body in
+    ``content``; only the parsed object is missing. Anything else is an error
+    the caller has to see.
+    """
+    message = completion.choices[0].message  # type: ignore[attr-defined]
+    parsed = getattr(message, "parsed", None)
+    if isinstance(parsed, response_model):
+        return parsed
+    text = str(getattr(message, "content", "") or "").strip()
     if not text:
-        raise ValueError("empty response")
-    parsed = json.loads(text)
-    if not isinstance(parsed, dict):
-        raise ValueError("response is not a JSON object")
-    return parsed
+        raise ValueError("empty structured response")
+    return response_model.model_validate_json(text)

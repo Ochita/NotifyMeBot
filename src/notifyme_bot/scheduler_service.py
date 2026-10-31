@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import calendar
 import logging
-from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import UTC, datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
@@ -40,7 +38,7 @@ class ReminderScheduler:
             trigger="date",
             run_date=reminder.remind_at_utc,
             kwargs={"reminder_id": reminder.id},
-            id=self._job_id(reminder.id),
+            id=f"reminder:{reminder.id}",
             replace_existing=True,
             misfire_grace_time=300,
         )
@@ -58,87 +56,19 @@ class ReminderScheduler:
             chat_id=reminder.chat_id,
             text=notification_text,
         )
-        if reminder.is_recurring:
-            next_run = self._next_recurring_run(reminder)
-            await self._repository.update_reminder_next_run(
-                reminder_id=reminder_id,
-                next_run_utc=next_run,
-            )
-            updated = await self._repository.get_reminder(reminder_id)
-            if updated:
-                self.schedule(updated)
-            LOGGER.info(
-                "Delivered recurring reminder_id=%s next_run=%s",
-                reminder_id,
-                next_run.isoformat(),
-            )
+        next_run = reminder.next_run(datetime.now(UTC))
+        if next_run is None:
+            await self._repository.delete_reminder(reminder_id)
+            LOGGER.info("Delivered and purged reminder_id=%s", reminder_id)
             return
 
-        await self._repository.delete_reminder(reminder_id)
-        LOGGER.info("Delivered and purged reminder_id=%s", reminder_id)
-
-    @staticmethod
-    def _job_id(reminder_id: int) -> str:
-        return f"reminder:{reminder_id}"
-
-    @staticmethod
-    def _next_recurring_run(reminder: Reminder) -> datetime:
-        now_utc = datetime.now(UTC)
-        interval = max(reminder.recurrence_interval or 1, 1)
-        tz = ZoneInfo(reminder.timezone or "UTC")
-        now_local = now_utc.astimezone(tz)
-        base_local = reminder.remind_at_utc.astimezone(tz)
-
-        step_name = {
-            "minute": "minutes",
-            "hour": "hours",
-            "day": "days",
-        }.get(reminder.recurrence_unit or "")
-        if step_name is not None:
-            step = timedelta(**{step_name: interval})
-            candidate_local = base_local + step
-            while candidate_local <= now_local:
-                candidate_local += step
-            return candidate_local.astimezone(UTC)
-
-        if reminder.recurrence_unit == "week":
-            weekdays = sorted(set(reminder.recurrence_weekdays or []))
-            if weekdays:
-                candidate_local = base_local
-                for _ in range(14):
-                    candidate_local += timedelta(days=1)
-                    candidate_utc = candidate_local.astimezone(UTC)
-                    if (
-                        candidate_local.weekday() in weekdays
-                        and candidate_utc > now_utc
-                    ):
-                        return candidate_utc
-            candidate_local = base_local + timedelta(weeks=interval)
-            while candidate_local <= now_local:
-                candidate_local += timedelta(weeks=interval)
-            return candidate_local.astimezone(UTC)
-
-        if reminder.recurrence_unit == "month":
-            target_day = base_local.day
-            year = now_local.year
-            month = now_local.month
-            # Next run must be strictly after both "now" and the fire being
-            # delivered, otherwise a month-matching candidate repeats itself.
-            lower_bound = max(now_local, base_local)
-            for _ in range(36):
-                last_day = calendar.monthrange(year, month)[1]
-                day = min(target_day, last_day)
-                candidate_local = base_local.replace(
-                    year=year,
-                    month=month,
-                    day=day,
-                )
-                if candidate_local > lower_bound:
-                    return candidate_local.astimezone(UTC)
-                month += interval
-                year += (month - 1) // 12
-                month = ((month - 1) % 12) + 1
-            return (base_local + timedelta(days=31)).astimezone(UTC)
-
-        # Fallback for unexpected recurrence configuration.
-        return (base_local + timedelta(days=1)).astimezone(UTC)
+        await self._repository.update_reminder_next_run(
+            reminder_id=reminder_id,
+            next_run_utc=next_run,
+        )
+        self.schedule(reminder.model_copy(update={"remind_at_utc": next_run}))
+        LOGGER.info(
+            "Delivered recurring reminder_id=%s next_run=%s",
+            reminder_id,
+            next_run.isoformat(),
+        )

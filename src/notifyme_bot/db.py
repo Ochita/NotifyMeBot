@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 
 import aiosqlite
 
-from notifyme_bot.models import Reminder
+from notifyme_bot.models import Recurrence, Reminder
 
 _COLUMNS = (
     "id, user_id, chat_id, reminder_text, notification_text, remind_at_utc, "
-    "timezone, is_recurring, recurrence_unit, recurrence_interval, "
-    "recurrence_weekdays"
+    "timezone, recurrence"
 )
 
 
@@ -28,18 +26,15 @@ class ReminderRepository:
                     chat_id INTEGER NOT NULL,
                     is_subscribed INTEGER NOT NULL DEFAULT 1,
                     timezone TEXT,
+                    locale TEXT,
                     created_at_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 """
             )
-            await self._ensure_columns(
-                conn,
-                "users",
-                {
-                    "timezone": "timezone TEXT",
-                    "locale": "locale TEXT",
-                },
-            )
+            await self._ensure_columns(conn, "users", ("timezone", "locale"))
+            # The rule is one JSON column: NULL means one-shot, so there is no
+            # flag to fall out of sync and no schema change when the rule
+            # grows a field (day_of_month, for one).
             await conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS reminders (
@@ -51,30 +46,10 @@ class ReminderRepository:
                     notification_text TEXT NOT NULL DEFAULT '',
                     remind_at_utc TEXT NOT NULL,
                     timezone TEXT NOT NULL DEFAULT 'UTC',
-                    is_recurring INTEGER NOT NULL DEFAULT 0,
-                    recurrence_unit TEXT,
-                    recurrence_interval INTEGER,
-                    recurrence_weekdays TEXT,
+                    recurrence TEXT,
                     FOREIGN KEY(user_id) REFERENCES users(user_id)
                 );
                 """
-            )
-            await self._ensure_columns(
-                conn,
-                "reminders",
-                {
-                    "source_text": "source_text TEXT NOT NULL DEFAULT ''",
-                    "notification_text": (
-                        "notification_text TEXT NOT NULL DEFAULT ''"
-                    ),
-                    "is_recurring": (
-                        "is_recurring INTEGER NOT NULL DEFAULT 0"
-                    ),
-                    "recurrence_unit": "recurrence_unit TEXT",
-                    "recurrence_interval": "recurrence_interval INTEGER",
-                    "recurrence_weekdays": "recurrence_weekdays TEXT",
-                    "timezone": "timezone TEXT NOT NULL DEFAULT 'UTC'",
-                },
             )
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_reminders_due "
@@ -116,26 +91,26 @@ class ReminderRepository:
             await conn.commit()
 
     async def set_user_timezone(self, user_id: int, timezone: str) -> None:
-        async with aiosqlite.connect(self._database_path) as conn:
-            await conn.execute(
-                "UPDATE users SET timezone = ? WHERE user_id = ?;",
-                (timezone, user_id),
-            )
-            await conn.commit()
+        await self._set_user_field(user_id, "timezone", timezone)
 
     async def get_user_timezone(self, user_id: int) -> str | None:
         return await self._get_user_field(user_id, "timezone")
 
     async def set_user_locale(self, user_id: int, locale: str) -> None:
-        async with aiosqlite.connect(self._database_path) as conn:
-            await conn.execute(
-                "UPDATE users SET locale = ? WHERE user_id = ?;",
-                (locale, user_id),
-            )
-            await conn.commit()
+        await self._set_user_field(user_id, "locale", locale)
 
     async def get_user_locale(self, user_id: int) -> str | None:
         return await self._get_user_field(user_id, "locale")
+
+    async def _set_user_field(
+        self, user_id: int, column: str, value: str
+    ) -> None:
+        async with aiosqlite.connect(self._database_path) as conn:
+            await conn.execute(
+                f"UPDATE users SET {column} = ? WHERE user_id = ?;",  # noqa: S608
+                (value, user_id),
+            )
+            await conn.commit()
 
     async def is_subscribed(self, user_id: int) -> bool:
         async with aiosqlite.connect(self._database_path) as conn:
@@ -164,10 +139,7 @@ class ReminderRepository:
         notification_text: str,
         remind_at_utc: datetime,
         timezone: str,
-        is_recurring: bool,
-        recurrence_unit: str | None,
-        recurrence_interval: int | None,
-        recurrence_weekdays: list[int] | None,
+        recurrence: Recurrence | None = None,
     ) -> Reminder:
         remind_at = remind_at_utc.astimezone(UTC).isoformat()
         timezone_name = str(timezone).strip() or "UTC"
@@ -182,12 +154,9 @@ class ReminderRepository:
                     notification_text,
                     remind_at_utc,
                     timezone,
-                    is_recurring,
-                    recurrence_unit,
-                    recurrence_interval,
-                    recurrence_weekdays
+                    recurrence
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     user_id,
@@ -198,12 +167,7 @@ class ReminderRepository:
                     notification_text,
                     remind_at,
                     timezone_name,
-                    1 if is_recurring else 0,
-                    recurrence_unit,
-                    recurrence_interval,
-                    json.dumps(recurrence_weekdays)
-                    if recurrence_weekdays
-                    else None,
+                    recurrence.model_dump_json() if recurrence else None,
                 ),
             )
             await conn.commit()
@@ -217,10 +181,7 @@ class ReminderRepository:
             notification_text=notification_text,
             remind_at_utc=self._parse_utc(remind_at),
             timezone=timezone_name,
-            is_recurring=is_recurring,
-            recurrence_unit=recurrence_unit,
-            recurrence_interval=recurrence_interval,
-            recurrence_weekdays=recurrence_weekdays,
+            recurrence=recurrence,
         )
 
     async def get_reminder(self, reminder_id: int) -> Reminder | None:
@@ -247,9 +208,6 @@ class ReminderRepository:
             ) as cursor:
                 rows = await cursor.fetchall()
         return [self._to_reminder(row) for row in rows]
-
-    async def list_pending_for_user(self, user_id: int) -> list[Reminder]:
-        return await self.list_pending(user_id)
 
     async def delete_reminder(self, reminder_id: int) -> None:
         async with aiosqlite.connect(self._database_path) as conn:
@@ -280,10 +238,9 @@ class ReminderRepository:
             notification_text=str(row[4]),
             remind_at_utc=ReminderRepository._parse_utc(str(row[5])),
             timezone=str(row[6]) if row[6] else "UTC",
-            is_recurring=bool(row[7]),
-            recurrence_unit=str(row[8]) if row[8] else None,
-            recurrence_interval=int(row[9]) if row[9] is not None else None,
-            recurrence_weekdays=ReminderRepository._parse_weekdays(row[10]),
+            recurrence=Recurrence.model_validate_json(str(row[7]))
+            if row[7]
+            else None,
         )
 
     @staticmethod
@@ -297,24 +254,12 @@ class ReminderRepository:
     async def _ensure_columns(
         conn: aiosqlite.Connection,
         table: str,
-        columns: dict[str, str],
+        columns: tuple[str, ...],
     ) -> None:
         async with conn.execute(f"PRAGMA table_info({table});") as cursor:
-            rows = await cursor.fetchall()
-        have = {str(row[1]) for row in rows}
-        for name, ddl in columns.items():
+            have = {str(row[1]) for row in await cursor.fetchall()}
+        for name in columns:
             if name not in have:
-                await conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl};")
-
-    @staticmethod
-    def _parse_weekdays(raw: object) -> list[int] | None:
-        if raw is None:
-            return None
-        try:
-            parsed = json.loads(str(raw))
-        except json.JSONDecodeError:
-            return None
-        if not isinstance(parsed, list):
-            return None
-        weekdays = [int(value) for value in parsed if str(value).isdigit()]
-        return weekdays or None
+                await conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {name} TEXT;"
+                )

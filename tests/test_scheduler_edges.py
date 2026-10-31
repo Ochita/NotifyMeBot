@@ -5,27 +5,22 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from conftest import FakeBot, make_reminder
+from conftest import FakeBot, make_recurrence
+from pydantic import ValidationError
 
+from notifyme_bot.db import ReminderRepository
 from notifyme_bot.scheduler_service import ReminderScheduler
 
 
-class _RepoNoReminder:
-    async def get_reminder(self, reminder_id: int):
-        return None
-
-    async def delete_reminder(self, reminder_id: int) -> None:
-        raise AssertionError("should not delete")
-
-    async def update_reminder_next_run(self, **kwargs) -> None:
-        raise AssertionError("should not update")
-
-
 @pytest.mark.asyncio
-async def test_deliver_purge_when_reminder_missing() -> None:
+async def test_deliver_purge_when_reminder_missing(tmp_path: Path) -> None:
+    """A job whose row vanished (already deleted elsewhere) sends nothing."""
+    repo = ReminderRepository(str(tmp_path / "db.sqlite3"))
+    await repo.init()
     bot = FakeBot()
-    scheduler = ReminderScheduler(repository=_RepoNoReminder(), bot=bot)
-    await scheduler._deliver_and_purge(999)
+
+    await ReminderScheduler(repository=repo, bot=bot)._deliver_and_purge(999)
+
     assert bot.messages == []
 
 
@@ -33,8 +28,6 @@ async def test_deliver_purge_when_reminder_missing() -> None:
 async def test_deliver_uses_reminder_text_when_notification_blank(
     tmp_path: Path,
 ) -> None:
-    from notifyme_bot.db import ReminderRepository
-
     repo = ReminderRepository(str(tmp_path / "db.sqlite3"))
     await repo.init()
     await repo.upsert_user(user_id=1, chat_id=10)
@@ -46,10 +39,6 @@ async def test_deliver_uses_reminder_text_when_notification_blank(
         notification_text="   ",
         remind_at_utc=datetime.now(UTC) + timedelta(seconds=30),
         timezone="UTC",
-        is_recurring=False,
-        recurrence_unit=None,
-        recurrence_interval=None,
-        recurrence_weekdays=None,
     )
     bot = FakeBot()
     scheduler = ReminderScheduler(repository=repo, bot=bot)
@@ -59,8 +48,6 @@ async def test_deliver_uses_reminder_text_when_notification_blank(
 
 @pytest.mark.asyncio
 async def test_scheduler_start_idempotent(tmp_path: Path) -> None:
-    from notifyme_bot.db import ReminderRepository
-
     repo = ReminderRepository(str(tmp_path / "db.sqlite3"))
     await repo.init()
     scheduler = ReminderScheduler(repository=repo, bot=FakeBot())
@@ -78,13 +65,7 @@ async def test_scheduler_shutdown_when_not_running() -> None:
     await scheduler.shutdown()
 
 
-def test_next_recurring_run_fallback_unknown_unit() -> None:
-    base = datetime.now(UTC) + timedelta(minutes=1)
-    r = make_reminder(
-        remind_at_utc=base,
-        is_recurring=True,
-        recurrence_unit="not-a-known-unit",
-        recurrence_interval=1,
-    )
-    nxt = ReminderScheduler._next_recurring_run(r)
-    assert nxt > base
+def test_unknown_unit_cannot_be_stored() -> None:
+    """The vocabulary is closed: a bad unit fails at the model boundary."""
+    with pytest.raises(ValidationError):
+        make_recurrence("fortnight")  # type: ignore[arg-type]

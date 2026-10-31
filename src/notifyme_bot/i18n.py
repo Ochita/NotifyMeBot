@@ -20,8 +20,13 @@ def _load_messages() -> dict[str, dict[str, str]]:
 _MESSAGES = _load_messages()
 
 
-def translate(locale: str, key: str, **kwargs: str) -> str:
-    messages = _MESSAGES.get(locale, _MESSAGES["en"])
+def translate(language: str, key: str, **kwargs: str) -> str:
+    """Render ``key`` in ``language``; the first argument is not a slot.
+
+    It cannot be called ``locale``: ``set_locale_saved`` has a ``{locale}``
+    placeholder, and a keyword of the same name collides with the parameter.
+    """
+    messages = _MESSAGES.get(language, _MESSAGES["en"])
     template = messages.get(key, _MESSAGES["en"][key])
     return template.format(**kwargs)
 

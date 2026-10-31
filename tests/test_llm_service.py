@@ -3,24 +3,19 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
-from conftest import FakeOpenAI
+from conftest import FakeOpenAI, make_service
+from pydantic import BaseModel
 
 from notifyme_bot.llm import LLMServiceError, OpenAICompatibleService
 
 
-def _service(fake: FakeOpenAI, **overrides: object) -> OpenAICompatibleService:
-    kwargs: dict = {
-        "api_key": "sk",
-        "model": "gpt-4.1-nano",
-        "base_url": "https://api.example.com/v1/",
-        "stt_model": "voxtral-small-24b-2507-stt",
-    }
-    kwargs.update(overrides)
-    service = OpenAICompatibleService(**kwargs)
-    service._client = fake  # type: ignore[assignment]
-    return service
+class _Answer(BaseModel):
+    """Stand-in structured response for schema/parsing assertions."""
+
+    action: str = "none"
 
 
 def test_strips_trailing_slash_from_base_url() -> None:
@@ -31,9 +26,8 @@ def test_strips_trailing_slash_from_base_url() -> None:
         base_url="https://api.example.com/v1/",
         stt_model="stt",
     )
-    assert str(service.client.base_url).rstrip("/") == (
-        "https://api.example.com/v1"
-    )
+    client = service._client
+    assert str(client.base_url).rstrip("/") == "https://api.example.com/v1"
 
 
 def test_rejects_empty_model_stt_and_base_url() -> None:
@@ -61,23 +55,21 @@ def test_rejects_empty_model_stt_and_base_url() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_json_sends_schema_and_provider_hint() -> None:
+async def test_chat_structured_sends_model_and_provider_hint() -> None:
     fake = FakeOpenAI(content=json.dumps({"action": "none"}))
-    service = _service(fake)
-    schema = {"type": "object", "properties": {"a": {"type": "string"}}}
+    service = make_service(fake)
 
-    out = await service.chat_json("sys", "user", schema)
+    out = await service.chat_structured("sys", "user", _Answer)
 
-    assert out == {"action": "none"}
+    assert out == _Answer(action="none")
     sent = fake.captured_chat
     assert sent["model"] == "gpt-4.1-nano"
     assert sent["messages"] == [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "user"},
     ]
-    assert sent["response_format"]["type"] == "json_schema"
-    assert sent["response_format"]["json_schema"]["strict"] is True
-    assert sent["response_format"]["json_schema"]["schema"] == schema
+    # The pydantic class is the schema; the SDK renders it as strict JSON.
+    assert sent["response_format"] is _Answer
     assert sent["extra_body"]["provider"] == {
         "sort": "price",
         "require_parameters": True,
@@ -85,23 +77,49 @@ async def test_chat_json_sends_schema_and_provider_hint() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_json_rejects_non_object_payload() -> None:
+async def test_chat_structured_rejects_malformed_payload() -> None:
     fake = FakeOpenAI(content="[1, 2]")
-    with pytest.raises(LLMServiceError, match="not a JSON object"):
-        await _service(fake).chat_json("s", "u", {})
+    with pytest.raises(LLMServiceError, match="Chat completion failed"):
+        await make_service(fake).chat_structured("s", "u", _Answer)
 
 
 @pytest.mark.asyncio
-async def test_chat_json_empty_content_raises() -> None:
+async def test_chat_structured_empty_content_raises() -> None:
     fake = FakeOpenAI(content="   ")
-    with pytest.raises(LLMServiceError):
-        await _service(fake).chat_json("s", "u", {})
+    with pytest.raises(LLMServiceError, match="Chat completion failed"):
+        await make_service(fake).chat_structured("s", "u", _Answer)
+
+
+@pytest.mark.asyncio
+async def test_chat_structured_falls_back_to_text_content() -> None:
+    """Gateways that ignore response_format only fill ``content``."""
+
+    class _NoParsed:
+        async def parse(self, **kwargs: object) -> object:
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            parsed=None, content='{"action": "store"}'
+                        )
+                    )
+                ]
+            )
+
+    fake = FakeOpenAI()
+    fake.chat.completions = _NoParsed()  # type: ignore[assignment]
+
+    out = await make_service(fake).chat_structured("s", "u", _Answer)
+
+    assert out == _Answer(action="store")
 
 
 @pytest.mark.asyncio
 async def test_transcribe_passes_language_and_returns_text() -> None:
     fake = FakeOpenAI(transcript="  напомни позвонить  ")
-    out = await _service(fake).transcribe(b"audio", "audio/ogg", language="ru")
+    out = await make_service(fake).transcribe(
+        b"audio", "audio/ogg", language="ru"
+    )
 
     assert out == "напомни позвонить"
     sent = fake.captured_audio
@@ -114,9 +132,20 @@ async def test_transcribe_passes_language_and_returns_text() -> None:
 
 
 @pytest.mark.asyncio
+async def test_transcribe_defaults_to_ogg_when_mime_is_blank() -> None:
+    """Telegram can report an empty content type; assume voice OGG."""
+    fake = FakeOpenAI(transcript="hi")
+    await make_service(fake).transcribe(b"a", "   ")
+
+    name, _, mime = fake.captured_audio["file"]
+    assert name == "voice.ogg"
+    assert mime == "audio/ogg"
+
+
+@pytest.mark.asyncio
 async def test_transcribe_omits_language_when_unknown() -> None:
     fake = FakeOpenAI(transcript="hi")
-    await _service(fake).transcribe(b"a", "audio/ogg")
+    await make_service(fake).transcribe(b"a", "audio/ogg")
 
     assert "language" not in fake.captured_audio
 
@@ -124,7 +153,7 @@ async def test_transcribe_omits_language_when_unknown() -> None:
 @pytest.mark.asyncio
 async def test_transcribe_maps_mpeg_to_mp3() -> None:
     fake = FakeOpenAI(transcript="hi")
-    await _service(fake).transcribe(b"a", "audio/mpeg")
+    await make_service(fake).transcribe(b"a", "audio/mpeg")
 
     assert fake.captured_audio["file"][0] == "voice.mp3"
 
@@ -138,7 +167,7 @@ async def test_transcribe_wraps_errors() -> None:
     fake.audio.transcriptions.create = boom  # type: ignore[method-assign]
 
     with pytest.raises(LLMServiceError, match="Transcription failed"):
-        await _service(fake).transcribe(b"a", "audio/ogg")
+        await make_service(fake).transcribe(b"a", "audio/ogg")
 
 
 @pytest.mark.asyncio
@@ -152,4 +181,4 @@ async def test_transcribe_does_not_swallow_cancellation() -> None:
     fake.audio.transcriptions.create = cancelled  # type: ignore[method-assign]
 
     with pytest.raises(asyncio.CancelledError):
-        await _service(fake).transcribe(b"a", "audio/ogg")
+        await make_service(fake).transcribe(b"a", "audio/ogg")

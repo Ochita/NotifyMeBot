@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from pathlib import Path
 
 from notifyme_bot.db import ReminderRepository
 
 
-def test_init_migrates_legacy_reminders_table(tmp_path: Path) -> None:
+def test_init_adds_missing_user_columns(tmp_path: Path) -> None:
+    """A pre-locale ``users`` table gains the columns it lacks, keeps rows."""
+
     db_path = tmp_path / "legacy.sqlite3"
     conn = sqlite3.connect(str(db_path))
     conn.execute(
@@ -19,42 +22,33 @@ def test_init_migrates_legacy_reminders_table(tmp_path: Path) -> None:
         );
         """
     )
-    conn.execute(
-        """
-        CREATE TABLE reminders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            chat_id INTEGER NOT NULL,
-            source_text TEXT NOT NULL,
-            reminder_text TEXT NOT NULL,
-            remind_at_utc TEXT NOT NULL,
-            created_at_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-        """
-    )
+    conn.execute("INSERT INTO users(user_id, chat_id) VALUES (1, 10);")
     conn.commit()
     conn.close()
 
     repo = ReminderRepository(str(db_path))
-
-    async def run() -> None:
-        await repo.init()
-
-    import asyncio
-
-    asyncio.run(run())
+    asyncio.run(repo.init())
 
     conn = sqlite3.connect(str(db_path))
-    cur = conn.execute("PRAGMA table_info(reminders);")
-    cols = {row[1] for row in cur.fetchall()}
-    users = conn.execute("PRAGMA table_info(users);")
-    user_cols = {row[1] for row in users.fetchall()}
+    user_cols = {row[1] for row in conn.execute("PRAGMA table_info(users);")}
     conn.close()
-    assert "timezone" in cols
-    assert "notification_text" in cols
-    assert "locale" in user_cols
+
+    assert {"timezone", "locale"} <= user_cols
+    assert asyncio.run(repo.get_user_locale(1)) is None
+    assert asyncio.run(repo.user_exists(1)) is True
 
 
-def test_parse_weekdays_invalid_json_returns_none() -> None:
-    assert ReminderRepository._parse_weekdays("{not json") is None
-    assert ReminderRepository._parse_weekdays('{"x": 1}') is None
+def test_reminders_table_stores_one_recurrence_column(
+    tmp_path: Path,
+) -> None:
+    """One-shot vs recurring is NULL vs a rule, not a parallel flag."""
+
+    db_path = tmp_path / "fresh.sqlite3"
+    asyncio.run(ReminderRepository(str(db_path)).init())
+
+    conn = sqlite3.connect(str(db_path))
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(reminders);")}
+    conn.close()
+
+    assert "recurrence" in cols
+    assert not {"is_recurring", "recurrence_unit"} & cols

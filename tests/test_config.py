@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from notifyme_bot.config import load_settings
+from notifyme_bot.config import AITUNNEL_BASE_URL, load_settings
 
 
 def test_load_settings_from_yaml(tmp_path: Path) -> None:
@@ -30,7 +30,8 @@ def test_load_settings_from_yaml(tmp_path: Path) -> None:
     assert settings.database_path == "db.sqlite3"
     assert settings.default_timezone == "Europe/Kyiv"
     assert settings.allow_new_users is True
-    assert settings.base_url is None
+    # No override in the file: the default endpoint is already resolved.
+    assert settings.base_url == AITUNNEL_BASE_URL
 
 
 def test_load_settings_allow_new_users_false(tmp_path: Path) -> None:
@@ -133,7 +134,7 @@ def test_load_settings_defaults_model_name(tmp_path: Path) -> None:
     settings = load_settings(str(config_file))
     assert settings.model_name == "gpt-4.1-nano"
     assert settings.stt_model == "voxtral-small-24b-2507-stt"
-    assert settings.base_url is None
+    assert settings.base_url == AITUNNEL_BASE_URL
     assert settings.default_locale == "en"
 
 

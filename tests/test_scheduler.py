@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import FakeBot, make_reminder
+from conftest import FakeBot, make_recurrence, make_reminder
 
 from notifyme_bot.db import ReminderRepository
 from notifyme_bot.scheduler_service import ReminderScheduler
@@ -24,10 +24,6 @@ async def test_scheduler_delivers_and_purges(tmp_path: Path) -> None:
         notification_text="Уведомление: отправьте деньги Алексею",
         remind_at_utc=datetime.now(UTC) + timedelta(minutes=2),
         timezone="UTC",
-        is_recurring=False,
-        recurrence_unit=None,
-        recurrence_interval=None,
-        recurrence_weekdays=None,
     )
     bot = FakeBot()
     scheduler = ReminderScheduler(repository=repo, bot=bot)
@@ -56,10 +52,6 @@ async def test_schedule_ignores_past_reminder(tmp_path: Path) -> None:
         notification_text="already late",
         remind_at_utc=datetime.now(UTC) - timedelta(minutes=2),
         timezone="UTC",
-        is_recurring=False,
-        recurrence_unit=None,
-        recurrence_interval=None,
-        recurrence_weekdays=None,
     )
     scheduler.schedule(reminder)
 
@@ -80,10 +72,7 @@ async def test_scheduler_recurring_reschedules(tmp_path: Path) -> None:
         notification_text="Reminder: drink water.",
         remind_at_utc=datetime.now(UTC) + timedelta(minutes=1),
         timezone="UTC",
-        is_recurring=True,
-        recurrence_unit="day",
-        recurrence_interval=2,
-        recurrence_weekdays=None,
+        recurrence=make_recurrence("day", 2),
     )
     bot = FakeBot()
     scheduler = ReminderScheduler(repository=repo, bot=bot)
@@ -93,6 +82,7 @@ async def test_scheduler_recurring_reschedules(tmp_path: Path) -> None:
 
     updated = await repo.get_reminder(reminder.id)
     assert updated is not None
+    assert updated.recurrence == reminder.recurrence
     assert updated.remind_at_utc > reminder.remind_at_utc
     assert bot.messages[0]["chat_id"] == 50
     await scheduler.shutdown()
@@ -111,10 +101,6 @@ async def test_scheduler_start_loads_pending_jobs(tmp_path: Path) -> None:
         notification_text="Reminder: stand up.",
         remind_at_utc=datetime.now(UTC) + timedelta(minutes=3),
         timezone="UTC",
-        is_recurring=False,
-        recurrence_unit=None,
-        recurrence_interval=None,
-        recurrence_weekdays=None,
     )
     scheduler = ReminderScheduler(repository=repo, bot=FakeBot())
 
@@ -124,68 +110,29 @@ async def test_scheduler_start_loads_pending_jobs(tmp_path: Path) -> None:
     await scheduler.shutdown()
 
 
-def test_next_recurring_run_weekdays_and_fallback() -> None:
-    base_dt = datetime.now(UTC) + timedelta(minutes=1)
-    weekly = make_reminder(
+def test_recurring_reminder_moves_to_next_run() -> None:
+    """Every 2 minutes from a fixed instant lands exactly 2 minutes later."""
+    base_dt = datetime(2026, 10, 23, 12, 1, tzinfo=UTC)
+    now = datetime(2026, 10, 23, 12, 2, tzinfo=UTC)
+    reminder = make_reminder(
         remind_at_utc=base_dt,
-        timezone="Europe/Rome",
-        is_recurring=True,
-        recurrence_unit="week",
-        recurrence_interval=1,
-        recurrence_weekdays=[2, 5],
+        recurrence=make_recurrence("minute", 2),
     )
-    fallback = make_reminder(
+
+    assert reminder.next_run(now) == datetime(2026, 10, 23, 12, 3, tzinfo=UTC)
+
+
+def test_recurring_reminder_catches_up_after_downtime() -> None:
+    """Delivered late, the next fire stays in the future, not in the past."""
+    base_dt = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
+    now = datetime(2026, 10, 23, 12, 9, tzinfo=UTC)
+    reminder = make_reminder(
         remind_at_utc=base_dt,
-        is_recurring=True,
-        recurrence_unit="unknown",
-        recurrence_interval=1,
+        recurrence=make_recurrence("minute", 2),
     )
 
-    weekly_next = ReminderScheduler._next_recurring_run(weekly)
-    fallback_next = ReminderScheduler._next_recurring_run(fallback)
-
-    assert weekly_next > base_dt
-    assert weekly_next.weekday() in {2, 5}
-    assert fallback_next.date() == (base_dt + timedelta(days=1)).date()
+    assert reminder.next_run(now) == datetime(2026, 10, 23, 12, 10, tzinfo=UTC)
 
 
-def test_next_recurring_run_minutes() -> None:
-    base_dt = datetime.now(UTC) + timedelta(seconds=20)
-    minute_reminder = make_reminder(
-        remind_at_utc=base_dt,
-        is_recurring=True,
-        recurrence_unit="minute",
-        recurrence_interval=2,
-    )
-
-    next_dt = ReminderScheduler._next_recurring_run(minute_reminder)
-    delta = next_dt - base_dt
-
-    assert next_dt > base_dt
-    assert (
-        timedelta(minutes=1, seconds=50)
-        <= delta
-        <= timedelta(minutes=2, seconds=10)
-    )
-
-
-def test_next_recurring_run_monthly() -> None:
-    base_dt = datetime.now(UTC).replace(day=3, hour=9, minute=0, second=0)
-    if base_dt <= datetime.now(UTC):
-        # Keep the same day/time, just move to future month baseline.
-        month = base_dt.month + 1
-        year = base_dt.year + (month - 1) // 12
-        month = ((month - 1) % 12) + 1
-        base_dt = base_dt.replace(year=year, month=month)
-
-    month_reminder = make_reminder(
-        remind_at_utc=base_dt,
-        is_recurring=True,
-        recurrence_unit="month",
-        recurrence_interval=1,
-    )
-
-    next_dt = ReminderScheduler._next_recurring_run(month_reminder)
-
-    assert next_dt > base_dt
-    assert next_dt.day == 3
+def test_one_shot_reminder_has_no_next_run() -> None:
+    assert make_reminder().next_run(datetime.now(UTC)) is None
